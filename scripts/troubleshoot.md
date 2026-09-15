@@ -96,18 +96,23 @@ change; validation messages in particular are assembled per field.
 
 ### delivered: 0 on a 201
 - match: `"delivered":0` alongside `"success":true`
-- cause: the alert was created and nobody was reached. Either no recipient has a registered device, or this was a deduplicated send (check for `"deduplicated":true` — see below)
-- fix: assert on `delivered`, not on the status code. If `deduplicated` is absent, the roster is the problem: check invites were accepted and the app is installed and signed in on each phone
+- cause: the alert was created and nothing was sent to anybody. Either no recipient has a device registered — check `unregistered` and `noDevice`, which say which kind — or this was a deduplicated send, in which case `"deduplicated":true` is also present and nobody needed alerting again
+- fix: assert on `delivered`, not on the status code, and check `deduplicated` first so a suppressed repeat is not read as a failure. If `deduplicated` is absent, the roster is the problem: invites accepted, app installed, signed in, and opened at least once on each phone
 
 ### unregistered is not empty
 - match: `"unregistered":["..."]`
-- cause: those people accepted the channel invite but have no M91 account, so there is nothing to deliver to. They are counted as members and reached by nothing
+- cause: those people accepted the channel invite but never signed in, so they have no M91 account and there is nothing to deliver to. They are counted as members and reached by nothing
 - fix: they must install M91 and sign in with the number that was invited
 
-### Delivered, but the phone stayed silent
-- no `match` — the API reports the alert as delivered
-- cause: notification permission for M91 is denied on that device, or the app was uninstalled without leaving the channel. Delivery is counted at hand-off, not at the point the phone makes a sound
-- fix: enable notifications for M91 in that phone's system settings. Confirm with the **Send a test alert** button in the app's send sheet, which fires a real alert down the same link
+### noDevice is not zero
+- match: `"noDevice":1` or higher in the send response
+- cause: those people accepted **and** signed in, but have no device registered, so nothing was sent to them. Most often the app was reinstalled or restored and has not been opened since; the app registers its device token on every launch, so it has had no chance to
+- fix: they open the M91 app once. It registers on launch, and every alert after that reaches them. From the channel screen they look like ordinary members, which is why this is reported separately
+
+### Sent, reported delivered, and the phone still stayed silent
+- no `match` — a normal `201` with a non-zero `delivered`
+- cause: `delivered` counts recipients the alert was **dispatched to**, not confirmations that a phone made a sound. The push can still be dropped after that: notification permission denied for M91 on that device, or a device token the platform has invalidated since it was registered — the push service accepts a dead token and reports success, so nothing fails anywhere
+- fix: check notification permission for M91 on that phone, and have them open the app once to re-register the device. The only positive proof somebody saw an alert is a response coming back
 
 ### Fewer delivered than the channel has members
 - no `match` — a normal `201` with a low `delivered`

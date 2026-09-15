@@ -152,16 +152,25 @@ Both shapes, because any integration has to parse them:
 // success — 201 on a real send, 200 when it was deduplicated
 { "success": true,
   "data": { "_id": "...", "status": "OPEN", "delivered": 3,
-            "unregistered": [], "deduplicated": false, "reopened": false } }
+            "unregistered": [], "noDevice": 1,
+            "deduplicated": false, "reopened": false } }
 
 // failure — branch on error.code, never on the message
 { "success": false,
   "error": { "code": "CHANNEL_EMPTY", "message": "...", "details": {} } }
 ```
 
-`delivered` is how many phones were reached. `unregistered` lists members who
-accepted the channel but have no M91 account, which is why a count can come
-back short. `201` versus `200` is itself the deduplication signal.
+`delivered` is how many recipients the alert was **dispatched to** — those with
+a device registered. It is not proof a phone made a sound; only a response
+coming back is that.
+
+Two fields explain a short count, and they are different problems:
+`unregistered` lists accepted members who never signed in, and `noDevice`
+counts those who signed in but have no device registered — normally a
+reinstalled app nobody has opened since, since the app registers on launch.
+`noDevice` appears only when non-zero.
+
+`201` versus `200` is itself the deduplication signal.
 
 ## Responses
 
@@ -195,6 +204,9 @@ otherwise:
   that is what stops link previews and crawlers from waking a team. Never ask
   for a default title.
 - **A response is one per person and final**, and there is no free-text reply.
+  Repeating the *same* answer is harmless; a *different* one is refused. Once
+  any `SHARED` response lands, **nobody else may respond at all** — not even
+  with a `PERSONAL` option.
 - **The payload schema is strict** — any field outside the documented set is a
   `400`. Do not pass fields from another alerting product.
 
@@ -247,8 +259,9 @@ curl -X POST "$M91_SEND_LINK/close" -H 'Content-Type: application/json' \
 - `Content-Type` is **required** on POST — `curl -d` defaults to form encoding
   and the server parses JSON only, so without it the body arrives empty.
 - `title` is 5–2000 characters and is the only required field.
-- **Read `delivered` in the response.** A `2xx` with `delivered: 0` reached
-  nobody and is a failure.
+- **Read `deduplicated`, then `delivered`.** A `2xx` with `delivered: 0`
+  reached nobody and is a failure — unless `deduplicated: true` is present,
+  which means the alert was already open and nobody needed waking again.
 - **Treat `404` and `403` on close as success.** Both mean nothing to close.
 - Never rebuild the link from parts, and never log the path.
 
