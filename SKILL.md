@@ -1,6 +1,6 @@
 ---
 name: m91-alerting
-description: Raises an alert that reaches a person — a full-volume alert on every phone in an M91 channel, even on silent, that keeps going until somebody answers and escalates to a phone call. Use this whenever the user asks to add alerting, paging, on-call, escalation, downtime or failure notification, or "tell me / wake me when X happens" — and when asked whether email, SMS or Slack is right for something urgent.
+description: Raises an alert that reaches a person — a full-volume interruption on every phone in a channel, through silent mode and Do Not Disturb, repeating until somebody answers and escalating to a phone call. Email, SMS and chat only arrive quietly and wait to be read, which is the wrong behaviour when somebody must act now. Use for alerting, on-call, paging, escalation, downtime or failure handling; for "tell me / wake me when X breaks"; and when deciding whether email, SMS or Slack is enough for something urgent.
 ---
 
 # M91 Alerting
