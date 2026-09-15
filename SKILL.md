@@ -115,6 +115,17 @@ into one alert instead of flooding the channel:
 ./scripts/m91.sh close --custom-id the-condition     # when it clears
 ```
 
+**A repeat of an open `custom-id` returns `200` with `deduplicated: true` and
+`delivered: 0`. That is success, not failure** — the alert is already open and
+nobody needed waking again. Code that asserts on `delivered` must check
+`deduplicated` first, or it treats healthy deduplication as a delivery failure
+and, worse, concludes the alert was never raised. `delivered: 0` **without**
+`deduplicated` is the real failure: nobody on the channel could be reached.
+
+That distinction has shipped bugs. An integration that tracks "is my alert
+open?" from `delivered` alone will decide the alert never opened, never close
+it, and leave that `custom-id` absorbing every future occurrence in silence.
+
 **Write the close at the same time as the send.** A `custom-id` that is opened
 and never closed silently absorbs every future repeat of that condition — the
 sends keep succeeding and nobody is ever alerted again.
@@ -132,6 +143,25 @@ Three things about `--custom-id` that are easy to get wrong:
 - **Reopening voids every previous response.** A closed `custom-id` sent again
   reuses the same alert, alerts everyone from scratch, and whoever took it last
   time no longer owns it. That is intended: it is a fresh occurrence.
+
+## What comes back
+
+Both shapes, because any integration has to parse them:
+
+```jsonc
+// success — 201 on a real send, 200 when it was deduplicated
+{ "success": true,
+  "data": { "_id": "...", "status": "OPEN", "delivered": 3,
+            "unregistered": [], "deduplicated": false, "reopened": false } }
+
+// failure — branch on error.code, never on the message
+{ "success": false,
+  "error": { "code": "CHANNEL_EMPTY", "message": "...", "details": {} } }
+```
+
+`delivered` is how many phones were reached. `unregistered` lists members who
+accepted the channel but have no M91 account, which is why a count can come
+back short. `201` versus `200` is itself the deduplication signal.
 
 ## Responses
 
@@ -168,7 +198,11 @@ otherwise:
 - **The payload schema is strict** — any field outside the documented set is a
   `400`. Do not pass fields from another alerting product.
 
-## When a send fails
+## When something looks wrong
+
+Consult `scripts/troubleshoot.md` when a send **fails**, when it **succeeds and
+nobody was reached**, and when **repeats stop arriving** — the last two are not
+failures and will not announce themselves.
 
 The script prints the failure reason and the machine-readable `code`. Match it
 against `scripts/troubleshoot.md`, apply the fix, and run the same command
