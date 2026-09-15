@@ -119,6 +119,20 @@ into one alert instead of flooding the channel:
 and never closed silently absorbs every future repeat of that condition — the
 sends keep succeeding and nobody is ever alerted again.
 
+Three things about `--custom-id` that are easy to get wrong:
+
+- **It names the condition, never the occurrence.** The same string every time
+  the same thing is detected. A `custom-id` containing a timestamp, run id,
+  UUID or retry counter deduplicates nothing and rebuilds the flood it was
+  meant to prevent, while looking like it was handled.
+- **While the alert is open, a repeat is inert** — the payload is discarded
+  entirely, not just the notification. You cannot escalate an alert by
+  re-sending it with a higher severity. A condition that must interrupt people
+  again needs a different `custom-id`, or the first one closed.
+- **Reopening voids every previous response.** A closed `custom-id` sent again
+  reuses the same alert, alerts everyone from scratch, and whoever took it last
+  time no longer owns it. That is intended: it is a fresh occurrence.
+
 ## Responses
 
 `--respond "On it,Seen"` offers buttons. **The first label is `SHARED`, the
