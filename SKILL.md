@@ -271,7 +271,7 @@ on a failure path, and an error handler that throws turns one problem into two.
 ## Reference
 
 `scripts/troubleshoot.md` for failure modes and fixes.
-<https://siren-backend-1091285226236.asia-south1.run.app/llms.txt> is the
+<https://m91.msg91.com/llms.txt> is the
 canonical reference — the full API, every field, what M91 does and does not
 guarantee, and worked integrations for several languages. Prefer it over this
 file for anything not covered here, and trust the live API's behaviour over

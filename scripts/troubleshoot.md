@@ -8,9 +8,9 @@ substring to look for in a response body) → `cause` → `fix`.
 
 Covers the whole integration surface: checking a link, raising an alert by link
 or by JSON, and closing one. See
-[`docs.md`](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md) for the API reference this
+[`docs.md`](https://m91.msg91.com/api/public/docs.md) for the API reference this
 guide assumes, and
-[`limitations-and-recommendations.md`](https://siren-backend-1091285226236.asia-south1.run.app/api/public/limitations-and-recommendations.md)
+[`limitations-and-recommendations.md`](https://m91.msg91.com/api/public/limitations-and-recommendations.md)
 for what M91 does and does not guarantee — *before* you hit it, not after.
 
 Every error body is
@@ -28,7 +28,7 @@ change; validation messages in particular are assembled per field.
 ### A bare GET returns `ok: true` but nothing happens
 - match: `{"success":true,"data":{"ok":true,"channel":{...}}}`
 - cause: **not a failure.** A `GET` with no `title` is the connection test and deliberately raises nothing — that is what stops link previews, chat unfurls, mail scanners and crawlers from waking a team when the URL is pasted somewhere
-- fix: add `?title=...` to raise a real alert. Never expect a bare link to alert, and never ask for a default title — see [The send link](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md#send-link)
+- fix: add `?title=...` to raise a real alert. Never expect a bare link to alert, and never ask for a default title — see [The send link](https://m91.msg91.com/api/public/docs.md#send-link)
 
 ### A link opened in a browser returns a web page instead of JSON
 - match: `Content-Type: text/html` on a `GET .../s/<token>?title=...`
@@ -40,7 +40,7 @@ change; validation messages in particular are assembled per field.
 ### 400 VALIDATION_ERROR — title missing
 - match: `"title is required"`
 - cause: no `title` (or its alias `summary`) in the body, or no `title=` in the query string. It is the one always-required field
-- fix: send a `title`. On the link form it is required by design and has no default — see the security note in [`docs.md`](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md#send-link)
+- fix: send a `title`. On the link form it is required by design and has no default — see the security note in [`docs.md`](https://m91.msg91.com/api/public/docs.md#send-link)
 
 ### 400 VALIDATION_ERROR — title too short or too long
 - match: `"title must be at least 5 characters"`, `"title must be 2000 characters or fewer"`
@@ -50,7 +50,7 @@ change; validation messages in particular are assembled per field.
 ### 400 VALIDATION_ERROR — unknown field
 - match: `"Unknown field: "`, `"Unknown fields: "`, `". Check the spelling."`
 - cause: a field that is not part of the contract — usually a typo (`titel`, `serverity`, `custom_id`), a field from some other alerting product (`priority`, `source`, `tags`, `assignee`), or recipients passed in the payload. The schema is strict on purpose: silently dropping an unknown key is how an alert goes out with no title
-- fix: the named key is in the message. Use only the documented fields — see [Alert fields](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md#alert-fields). There is no recipient field at all: the channel *is* the recipient list
+- fix: the named key is in the message. Use only the documented fields — see [Alert fields](https://m91.msg91.com/api/public/docs.md#alert-fields). There is no recipient field at all: the channel *is* the recipient list
 
 ### 400 VALIDATION_ERROR — bad severity
 - match: `"severity must be one of: LOW, MEDIUM, HIGH, CRITICAL"`
@@ -60,7 +60,7 @@ change; validation messages in particular are assembled per field.
 ### 400 VALIDATION_ERROR — bad response effect
 - match: `"must be SHARED or PERSONAL"`
 - cause: an `effect` other than those two literals, usually lowercase or a synonym (`shared`, `ack`, `acknowledge`, `claim`)
-- fix: uppercase `SHARED` or `PERSONAL` exactly, or omit `effect` — it defaults to `SHARED`. They mean responsibility, not mechanism: see [Responses](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md#responses)
+- fix: uppercase `SHARED` or `PERSONAL` exactly, or omit `effect` — it defaults to `SHARED`. They mean responsibility, not mechanism: see [Responses](https://m91.msg91.com/api/public/docs.md#responses)
 
 ### 400 VALIDATION_ERROR — response option problems
 - match: `"must be 24 characters or fewer"`, `"cannot repeat the same label twice"`, `"cannot offer more than 20 options"`, `"cannot offer more than 6 options in a link"`
@@ -134,7 +134,7 @@ change; validation messages in particular are assembled per field.
 ### 429 RATE_LIMITED
 - match: `"code":"RATE_LIMITED"`, `"which is its limit"`
 - cause: more than 60 alerts in a minute on one link. Almost always a condition that keeps firing with no `customId`, or a retry loop with no backoff
-- fix: honour the `Retry-After` header. Then fix the cause: add a `customId` so repeats collapse into one alert, and close it when the condition clears. See [Repeating problems](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md#repeating-problems)
+- fix: honour the `Retry-After` header. Then fix the cause: add a `customId` so repeats collapse into one alert, and close it when the condition clears. See [Repeating problems](https://m91.msg91.com/api/public/docs.md#repeating-problems)
 
 ## Closing an alert
 
@@ -156,7 +156,7 @@ change; validation messages in particular are assembled per field.
 ### A higher severity on the same customId changed nothing
 - no `match` — the send returns `200` with `"deduplicated":true`
 - cause: while an alert is open, a repeat of its `customId` is **inert** — the payload is discarded entirely, not just the notification. The title, description and severity you sent are ignored and the alert keeps what it was created with, so a condition that worsened cannot escalate itself this way
-- fix: an alert that must interrupt people again is a different alert. Use a separate `customId` for the worse condition, or close the first so the next send raises fresh. See [The lifecycle](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md#custom-id-lifecycle)
+- fix: an alert that must interrupt people again is a different alert. Use a separate `customId` for the worse condition, or close the first so the next send raises fresh. See [The lifecycle](https://m91.msg91.com/api/public/docs.md#custom-id-lifecycle)
 
 ### Responses vanished after an alert came back
 - no `match` — the alert is open again with nobody shown as having answered
@@ -178,7 +178,7 @@ change; validation messages in particular are assembled per field.
 ### A SHARED response did not close the alert
 - no `match` — the alert stays `OPEN` after somebody responds
 - cause: **by design.** `isAutoClose` defaults to `false`. A `SHARED` response stands every other phone down immediately, but it does not end the alert: closing says the thing is *over*, and usually only a person can say that. Auto-closing removes the alert from everyone's screen before anybody can see who took it or what came of it
-- fix: nothing, if you want a record somebody can act on and close. Send `isAutoClose: true` for genuine fire-and-forget. See [When an alert ends](https://siren-backend-1091285226236.asia-south1.run.app/api/public/docs.md#when-an-alert-ends)
+- fix: nothing, if you want a record somebody can act on and close. Send `isAutoClose: true` for genuine fire-and-forget. See [When an alert ends](https://m91.msg91.com/api/public/docs.md#when-an-alert-ends)
 
 ### An alert with no response options never closes
 - no `match` — the alert sits `OPEN` indefinitely
