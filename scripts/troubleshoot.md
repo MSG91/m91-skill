@@ -173,6 +173,28 @@ change; validation messages in particular are assembled per field.
 - cause: an alert was opened with a `customId` and never closed. While it is open, every repeat of that id is absorbed
 - fix: close it, by `customId` from your own code or by a person in the app. Then design the close in: every `customId` you open needs a path that closes it when the condition clears
 
+## Reading back a decision
+
+### 404 NOT_FOUND on GET .../alerts/...
+- match: `"code":"NOT_FOUND"`, `"alert_not_found"` from `GET <SEND_LINK>/alerts/...`
+- cause: no alert with that `customId` or `_id` **on this channel**. Either it was never raised, the id is misspelled, or the link belongs to a different channel than the one the alert went to
+- fix: check the id against what you sent, and bare-`GET` the link to confirm the channel. Unlike close, a `404` here is not routine — it means you are polling for something that does not exist
+
+### decision stays null forever
+- no `match` — `"decision":null` on every poll
+- cause: nobody has given a **SHARED** response. Either no one has answered at all, or every answer so far was `PERSONAL` — those are acknowledgements and never become a decision
+- fix: if you need an answer, the options must include at least one `SHARED`; two `SHARED` options is how you ask a question with two answers. And set your own timeout — M91 keeps an alert open until somebody closes it, so an agent waiting on `decision` waits forever by default
+
+### A response came back but decision is still null
+- no `match` — `responses` has entries, `decision` is `null`
+- cause: **by design.** Only a `SHARED` response decides. A `PERSONAL` response records that one person is aware and changes nothing for anybody else; surfacing it as a decision would let an agent read "Seen" as "Approved"
+- fix: read `decision` for the answer and `responses` for the full picture. If those options were meant as answers, give them `effect: "SHARED"`
+
+### Polling gets 429 RATE_LIMITED
+- match: `"code":"RATE_LIMITED"` on `GET <SEND_LINK>/alerts/...`
+- cause: polls share the send link's 60-per-minute limit with the alerts it raises, so a tight loop burns the budget and then cannot raise alerts either
+- fix: poll every few seconds, not continuously. A person is deciding; sub-second polling buys nothing
+
 ## Behaviour that looks like a bug and is not
 
 ### A SHARED response did not close the alert

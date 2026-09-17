@@ -172,6 +172,38 @@ reinstalled app nobody has opened since, since the app registers on launch.
 
 `201` versus `200` is itself the deduplication signal.
 
+## Waiting for a human decision
+
+When the alert is a question — an agent must not act alone, a deploy needs a
+go-ahead — raise it with the answers as `SHARED` options, then poll:
+
+```bash
+./scripts/m91.sh send --title "Agent wants to refund 48,000 on order 40122" \
+                      --severity HIGH --custom-id refund-40122 \
+                      --respond "Approve!,Reject!"
+
+curl -sS "$M91_SEND_LINK/alerts/refund-40122"     # → data.decision, or null
+```
+
+**Read `decision`.** It is the `SHARED` response that took the alert on, or
+`null` while nobody has. A `PERSONAL` response never becomes a decision — it is
+an acknowledgement, and reading "Seen" as "Approved" is the mistake this
+separation exists to prevent. All responses of either kind are in `responses`.
+
+Three rules for the wait:
+
+- **You own the timeout.** M91 never expires an alert, so an agent polling for
+  `decision` waits forever by default. Decide what no answer means before you
+  send it, treat the timeout as the safe outcome, and close the alert after.
+- **Poll every few seconds, not continuously.** Polls share the link's
+  60-per-minute limit with the alerts it raises.
+- **Say the cost of silence in `description`.** The person deciding at 3am is
+  weighing what happens if they ignore it.
+
+**The link cannot answer, only ask and read.** That is deliberate: a send link
+lives in config and agent context and is assumed to leak, and one that could
+record a response would let whoever holds it approve on somebody's behalf.
+
 ## Responses
 
 `--respond "On it,Seen"` offers buttons. **The first label is `SHARED`, the
@@ -248,6 +280,7 @@ it does wraps one URL:
 
 ```bash
 curl "$M91_SEND_LINK"                                    # check: alerts nobody
+curl "$M91_SEND_LINK/alerts/the-condition"               # read back the decision
 curl "$M91_SEND_LINK?title=What+happened&severity=HIGH"  # raise, no client needed
 curl -X POST "$M91_SEND_LINK" -H 'Content-Type: application/json' \
   -d '{"title":"What happened","severity":"HIGH","customId":"the-condition",
