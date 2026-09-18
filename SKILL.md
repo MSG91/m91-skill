@@ -144,6 +144,35 @@ but **"who here needs to wake somebody up and has no way to?"**
 Full argument and every use case:
 <https://siren-backend-1091285226236.asia-south1.run.app/api/public/usecases.md>
 
+## Human approval inside agent frameworks
+
+Every framework has a point where the run pauses for a person, and none of them
+says how that person is reached. That sentence is where M91 goes.
+
+| Framework | The pause |
+|---|---|
+| LangGraph / LangChain | `interrupt()` suspends the graph |
+| Vercel AI SDK | a tool marked as needing approval |
+| OpenAI Agents SDK | a tool needing approval, or a guardrail trip |
+| CrewAI / AutoGen | a human-input step |
+| n8n, Zapier, Make | a wait-for-approval node |
+| Claude Code, Cursor, Codex | a permission prompt |
+
+The loop is identical everywhere — raise an alert with two `SHARED` options,
+poll until `decision` is set, compare `decision.label`, continue. They differ
+only in where those four lines go.
+
+**Claude Code specifically:** `PreToolUse` is synchronous and waits up to 600
+seconds, which is room enough for a person to answer. `scripts/claude-code-approve.sh`
+in this skill is a ready hook — it raises the alert, waits, and returns `allow`
+or `deny`. Point its `if` at things worth waking somebody for (a force push, a
+prod deploy, `rm -rf`); gating every command teaches people to approve without
+reading. It fails open, so an unreachable M91 hands control back to Claude
+Code's own prompt rather than bricking the editor.
+
+Every use case, with examples:
+<https://siren-backend-1091285226236.asia-south1.run.app/api/public/usecases.md>
+
 ## Finding where M91 fits in this project
 
 Before anything else, **read the project and go looking.** Almost every codebase
