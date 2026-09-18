@@ -36,33 +36,31 @@ exits `3` to say so — do not report that as working.
 `send` options: `--title` (required), `--description`, `--severity`,
 `--custom-id`, `--respond "On it,Seen"`, `--auto-close`.
 
-## Which setup does this project need?
+## Which credential does this project need?
 
-One question, and it decides everything else:
+The question is **who gets woken**, not how big the project is:
 
-> **Does the number of channels grow as the user gets more customers?**
+- **A team** — ops, on-call, approvals, anything with a shared responsibility →
+  **send link.** A person creates the channel in the app, you post to its link.
+  This is almost every project. **Default here.**
+- **One person the product discovers at runtime** — a user who signed up an
+  hour ago → **API key + their phone number.**
+  <https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md>
 
-**No — use a send link.** This is almost every project: a server, a cron, CI, a
-monitoring tool, a job that fails. The people alerted are *their team*, a fixed
-group. A person creates one channel in the app, you use its link, done. **Default
-to this.**
+A send link's value IS its address, so one per channel is right while the
+channels are few and stable. It breaks when a product alerts people it is
+discovering at runtime: you cannot mint and store a link per user, each one a
+bearer credential able to wake somebody through Do Not Disturb.
 
-**Yes — they need an API key.** They are building a *product* whose own users
-get alerted: teams created from their frontend, recipients that are rows in
-their database. Reference:
-<https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md>
+**The API key cannot alert a team** — that is the link's job, and keeping it
+there means a leaked key cannot reach a group. It also cannot mint a link, and
+cannot record a response.
 
-Why it matters: a send link's *value is the address*, so one link per channel is
-perfect while the secrets live in different places. It breaks when one system
-alerts many groups — 200 teams becomes 200 credentials in a database, each able
-to wake somebody through Do Not Disturb, with no rotation.
-
-**Never reach for the key by default.** It can wake everybody in the account,
-where a link can only wake one channel. And if you ever find yourself minting a
-link per user, stop — that is the signal the project needed a key.
+**The signal you chose wrong:** you are writing code that mints a send link per
+user. Switch to a key.
 
 Both start the same way: **you ask the human.** You cannot create either
-credential. The only thing this question changes is *what to ask for*.
+credential. This question only changes what to ask for.
 
 ## Before the first alert: get a send link
 
@@ -109,6 +107,38 @@ can wake everybody on that channel.
   failure.
 - If the user pastes it into chat, treat it as live: put it in configuration
   and do not echo it back or write it into a tracked file.
+
+## Finding where M91 fits in this project
+
+Before anything else, **read the project and go looking.** Almost every codebase
+has two or three places where something fails and nobody finds out until a
+customer says so:
+
+```
+catch          → what happens after the log line?
+cron|schedule  → who finds out when this does not run?
+webhook        → what happens when the provider's call fails?
+retry|attempt  → what happens when the retries are exhausted?
+TODO|FIXME     → often literally "notify someone"
+threshold|limit|quota|balance
+approve|review|manual
+```
+
+If the project runs an **AI agent**, that is the highest-value place in it:
+tool-call approval, the agent stuck waiting on a person, runaway spend, low
+confidence, handoff to a human.
+
+Full discovery guide — the alert each signal wants, what to look at first by
+kind of project, and how to put it to the person:
+<https://siren-backend-1091285226236.asia-south1.run.app/api/public/usecases.md>
+
+**Propose two or three, and let them choose.** Somebody who picked three alerts
+keeps them. Somebody handed twelve mutes them within a fortnight, and then the
+one that mattered is muted too. Never wire alerting in silently.
+
+Lead with what they lose today, not with the API: *why* (the gap, concretely),
+*what* (the alert, in their words), *how* (one call in the catch block, one to
+close it — and they must create the channel, because that needs a phone).
 
 ## Deciding what should alert
 
