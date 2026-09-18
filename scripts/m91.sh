@@ -22,11 +22,21 @@
 #
 # The send link comes from M91_SEND_LINK, or --link.
 #
-# A platform alerting its OWN users by phone number uses an API key instead —
-# one secret for the whole account, the person named in each call, rather than
-# a send link per person. This is a DIFFERENT credential for a DIFFERENT job:
-# it can alert one person, never a channel, and it cannot mint a send link or
-# record a response. See platform-api.md.
+# A platform uses an API key instead — one secret for the whole account,
+# rather than a send link per channel or per person. It does two DIFFERENT
+# jobs, on the SAME credential:
+#
+#   1. PROVISION a team channel — create it, staff it, un-staff it — without
+#      opening the app. Alerting that channel is STILL the send link you get
+#      back from creating it, unchanged; the key itself can never raise an
+#      alert on a team channel, even one it just made.
+#
+#   ./m91.sh create-channel --name "Sales Team" [--no-alert-owner]
+#   ./m91.sh team-invite --id <_id from create-channel> --phones 919876543210,919876543211
+#   ./m91.sh team-remove --id <_id from create-channel> --phone 919876543210
+#
+#   2. ALERT one person directly, by phone number — the case a send link
+#      cannot cover, because you cannot mint and store a link per user.
 #
 #   ./m91.sh invite --phone 919876543210 [--label "Acme CRM"]
 #   ./m91.sh alert --phone 919876543210 --title "..." [--severity HIGH]
@@ -34,6 +44,10 @@
 #   ./m91.sh decision --phone 919876543210 --custom-id x
 #   ./m91.sh close-person --phone 919876543210 --custom-id x
 #   ./m91.sh remove --phone 919876543210
+#
+# The key can never mint an ADDITIONAL send link beyond the one automatic
+# owner sender a new channel already gets, and it cannot record a response.
+# See platform-api.md.
 #
 # The API key comes from M91_API_KEY, or --api-key. The host it calls comes
 # from M91_API, or --api (default: the hosted M91 API).
@@ -54,7 +68,11 @@ die()  { printf 'm91: %s\n' "$1" >&2; exit "${2:-1}"; }
 note() { printf 'm91: %s\n' "$1" >&2; }
 
 usage() {
-  sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'
+  # Prints every comment line from "Raise, check..." up to (not including)
+  # "set -uo pipefail" — not a hardcoded line range, which is exactly what
+  # went stale here once: --help silently stopped short of the whole API-key
+  # section when that block grew past the range this used to say.
+  sed -n '/^# Raise, check/,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
   exit "${1:-1}"
 }
 
@@ -300,6 +318,125 @@ cmd_close() {
 # about what a 2xx does and does not prove. `phone` replaces the channel the
 # send link implies; nothing else about reading a response changes.
 
+cmd_create_channel() {
+  local name="" alert_owner=1
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name)            name="${2:-}"; shift 2 ;;
+      --no-alert-owner)  alert_owner=0; shift ;;
+      --api-key)         API_KEY="${2:-}"; shift 2 ;;
+      --api)             API_HOST="${2:-}"; shift 2 ;;
+      *) die "unknown option for create-channel: $1" 1 ;;
+    esac
+  done
+
+  require_api_key
+  [ -n "$name" ] || die "--name is required." 1
+
+  local body="{\"name\":\"$(json_escape "$name")\""
+  [ "$alert_owner" = 0 ] && body="$body,\"alertOwner\":false"
+  body="$body}"
+
+  AUTH_HEADER="Authorization: Bearer $API_KEY" call POST "$API_HOST/api/v1/channels" "$body"
+
+  case "$STATUS" in
+    200|201) ;;
+    401) die "$(api_error UNAUTHORIZED)
+     The key is wrong or was revoked. Mint a new one from the app." 2 ;;
+    *)   die "$(api_error "HTTP $STATUS")" 2 ;;
+  esac
+
+  # No dedup on name — every call makes a new channel. Save the id and the
+  # link now; there is no route to look either of them up again later.
+  local id link
+  id=$(json_str "$BODY" _id)
+  link=$(json_str "$BODY" sendLink)
+
+  printf 'Created "%s" (id %s).\n' "$name" "${id:-?}"
+  printf 'Send link: %s\n' "${link:-none}"
+  note "alerting this channel is done with THAT link, not the API key.
+save the id above -- team-invite and team-remove need it, and there is no
+way to look it up again."
+}
+
+cmd_team_invite() {
+  local channel_id="" phones=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --id)      channel_id="${2:-}"; shift 2 ;;
+      --phones)  phones="${2:-}"; shift 2 ;;
+      --api-key) API_KEY="${2:-}"; shift 2 ;;
+      --api)     API_HOST="${2:-}"; shift 2 ;;
+      *) die "unknown option for team-invite: $1" 1 ;;
+    esac
+  done
+
+  require_api_key
+  [ -n "$channel_id" ] || die "--id is required — the _id returned by
+     create-channel." 1
+  [ -n "$phones" ] || die "--phones is required, comma-separated
+     (e.g. 919876543210,919876543211)." 1
+
+  local arr="" phone
+  local IFS=','
+  for phone in $phones; do
+    phone="${phone#"${phone%%[![:space:]]*}"}"
+    phone="${phone%"${phone##*[![:space:]]}"}"
+    [ -n "$phone" ] || continue
+    [ -n "$arr" ] && arr="$arr,"
+    arr="$arr\"$(json_escape "$phone")\""
+  done
+  unset IFS
+
+  local body="{\"phones\":[$arr]}"
+
+  AUTH_HEADER="Authorization: Bearer $API_KEY" \
+    call POST "$API_HOST/api/v1/channels/$channel_id/members" "$body"
+
+  case "$STATUS" in
+    200|201) ;;
+    401) die "$(api_error UNAUTHORIZED)
+     The key is wrong or was revoked. Mint a new one from the app." 2 ;;
+    404) die "$(api_error NOT_FOUND)
+     No channel with that id on this account. Create it first with
+     './m91.sh create-channel'." 2 ;;
+    *)   die "$(api_error "HTTP $STATUS")" 2 ;;
+  esac
+
+  printf '%s\n' "$BODY"
+  note "each person still has to install M91 and accept before the channel's
+send link can reach them."
+}
+
+cmd_team_remove() {
+  local channel_id="" phone=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --id)      channel_id="${2:-}"; shift 2 ;;
+      --phone)   phone="${2:-}"; shift 2 ;;
+      --api-key) API_KEY="${2:-}"; shift 2 ;;
+      --api)     API_HOST="${2:-}"; shift 2 ;;
+      *) die "unknown option for team-remove: $1" 1 ;;
+    esac
+  done
+
+  require_api_key
+  [ -n "$channel_id" ] || die "--id is required." 1
+  [ -n "$phone" ] || die "--phone is required." 1
+
+  AUTH_HEADER="Authorization: Bearer $API_KEY" \
+    call DELETE "$API_HOST/api/v1/channels/$channel_id/members/$phone"
+
+  case "$STATUS" in
+    200) printf 'Removed. %s will no longer be alerted through this channel.\n' "$phone" ;;
+    401) die "$(api_error UNAUTHORIZED)
+     The key is wrong or was revoked. Mint a new one from the app." 2 ;;
+    404) die "$(api_error NOT_FOUND)
+     No channel with that id, or that phone was not a member." 2 ;;
+    *)   die "$(api_error "HTTP $STATUS")" 2 ;;
+  esac
+}
+
 cmd_invite() {
   local phone="" label=""
   while [ $# -gt 0 ]; do
@@ -536,15 +673,19 @@ cmd_close_person() {
 
 [ $# -gt 0 ] || usage 1
 case "$1" in
-  check)        shift; [ "${1:-}" = "--link" ] && { LINK="${2:-}"; shift 2; }; cmd_check "$@" ;;
-  send)         shift; cmd_send "$@" ;;
-  close)        shift; cmd_close "$@" ;;
-  invite)       shift; cmd_invite "$@" ;;
-  remove)       shift; cmd_remove "$@" ;;
-  alert)        shift; cmd_alert "$@" ;;
-  decision)     shift; cmd_decision "$@" ;;
-  close-person) shift; cmd_close_person "$@" ;;
+  check)          shift; [ "${1:-}" = "--link" ] && { LINK="${2:-}"; shift 2; }; cmd_check "$@" ;;
+  send)           shift; cmd_send "$@" ;;
+  close)          shift; cmd_close "$@" ;;
+  create-channel) shift; cmd_create_channel "$@" ;;
+  team-invite)    shift; cmd_team_invite "$@" ;;
+  team-remove)    shift; cmd_team_remove "$@" ;;
+  invite)         shift; cmd_invite "$@" ;;
+  remove)         shift; cmd_remove "$@" ;;
+  alert)          shift; cmd_alert "$@" ;;
+  decision)       shift; cmd_decision "$@" ;;
+  close-person)   shift; cmd_close_person "$@" ;;
   -h|--help|help) usage 0 ;;
   --version) printf 'm91.sh %s\n' "$VERSION" ;;
-  *) die "unknown command: $1 (expected check, send, close, invite, remove, alert, decision or close-person)" 1 ;;
+  *) die "unknown command: $1 (expected check, send, close, create-channel,
+     team-invite, team-remove, invite, remove, alert, decision or close-person)" 1 ;;
 esac

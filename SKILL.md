@@ -36,31 +36,117 @@ exits `3` to say so — do not report that as working.
 `send` options: `--title` (required), `--description`, `--severity`,
 `--custom-id`, `--respond "On it,Seen"`, `--auto-close`.
 
+## Ask, don't guess
+
+Every capability below exists because a real integration hit a real limit of
+the simpler thing before it. That history is included on purpose: knowing
+*why* a feature exists is what lets you recognise when this project is the
+case it was built for, versus a case where the simpler default is still
+right.
+
+Some of these are one-way doors, or annoy a real person if you guess wrong —
+who gets paged, whether a channel needs to exist at all, what "handled" means
+here. **Don't default them silently.** Ask a short, concrete question with the
+tradeoff in it, the way the sections below show, and only proceed once
+you have an answer. Guessing and moving on is how a "helpful" default pages
+someone at 3am who should never have been on the list.
+
+Two ways to get it wrong in each direction:
+- **Asking about everything** — buries the one real decision under defaults
+  nobody needed to weigh in on. Only ask what this section flags.
+- **Silently picking a default for something flagged below** — the failure
+  mode this section exists to prevent.
+
 ## Which credential does this project need?
 
-The question is **who gets woken**, not how big the project is:
+The question is **who gets woken**, and separately, **who provisions**. This
+split exists because those two acts have different blast radii if the
+credential leaks — a send link can only ever wake the one channel it
+addresses; an API key can create and restaff channels but never wake any of
+them (see below) — so the product deliberately makes you pick the narrower
+credential for the narrower job.
 
-- **A team** — ops, on-call, approvals, anything with a shared responsibility →
-  **send link.** A person creates the channel in the app, you post to its link.
-  This is almost every project. **Default here.**
+- **Alerting a team** — ops, on-call, approvals, anything with a shared
+  responsibility → **send link.** A person creates the channel in the app, you
+  post to its link. This is almost every project. **Default here.**
+- **Creating/staffing a team channel from your own signup flow**, without a
+  person opening the app → **API key**, [provisioning endpoints]
+  (https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md#provisioning).
+
+  This exists for one reason: a send link has to be minted by a human, by
+  hand, in the app — fine for a fixed set of channels, impossible once your
+  own product is the one deciding a channel should exist (a CRM creating
+  "Sales Team" the moment someone types that name into its own UI). The API
+  key lets code do what only a person could do before.
+
+  Creating a channel returns its `_id` and `sendLink` — **save both against
+  whatever this team is in your own system**, the same way you'd store any
+  other id an API hands you. There is no dedup on `name`: calling create
+  again makes a second channel, so a retry-safe caller checks its own record
+  for an existing `sendLink` before calling again rather than relying on M91
+  to notice a repeat. Reuse the saved `_id` to add or remove members later.
+  The key hands you that channel's send link on creation; you still alert
+  through the link, not the key.
+
+  **By default the key's owner is also added as a member of every channel it
+  provisions**, so they'd be alerted too — this exists because the ordinary
+  case (a person's own integration provisioning their own team's channels)
+  wants that; a person creating a channel is normally going to be in it. It
+  stops being right at the point a single account is provisioning channels
+  *for other people's teams* — a CRM minting one channel per customer, where
+  its own engineering account has no reason to be paged for every customer's
+  incidents.
+
+  > **Ask:** "Should the account that owns this API key also be a member of
+  > every channel it creates — meaning they'd get paged too — or is this key
+  > provisioning channels on behalf of *other* people/teams, where the
+  > owning account shouldn't be in the loop?" First answer → leave `alertOwner`
+  > at its default (`true`, i.e. omit the field). Second answer → pass
+  > `"alertOwner": false` on every create call.
+
 - **One person the product discovers at runtime** — a user who signed up an
-  hour ago → **API key + their phone number.**
-  <https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md>
+  hour ago → **API key + their phone number,**
+  [direct alerts](https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md#direct).
+
+  This exists because a send link's whole design assumes the address (the
+  channel) is fixed and known ahead of time; a link addresses a channel, and a
+  channel is a static thing you set up once. A person your product just
+  discovered is neither: you cannot mint and store one credential per user,
+  each a bearer token able to wake someone through Do Not Disturb, sitting in
+  a user table with no rotation. Naming the person by phone number in the
+  request body, authenticated by the one account-wide key, solves that.
 
 A send link's value IS its address, so one per channel is right while the
-channels are few and stable. It breaks when a product alerts people it is
-discovering at runtime: you cannot mint and store a link per user, each one a
-bearer credential able to wake somebody through Do Not Disturb.
+channels are few and stable. It breaks when a product manages channels or
+people it is discovering at runtime.
 
-**The API key cannot alert a team** — that is the link's job, and keeping it
-there means a leaked key cannot reach a group. It also cannot mint a link, and
-cannot record a response.
+**The API key can never RAISE an alert on a team channel** — that stays the
+link's job, unchanged, even for a channel the key itself created. This is a
+deliberate security boundary, not an oversight: a leaked key can rename or
+restaff a channel, but it cannot ring a single phone in it — the worst a
+compromised provisioning credential can do is administrative, never "wake
+someone at 3am for no reason." The key also cannot mint an *additional* send
+link (only the one automatic owner sender a new channel already gets), and
+cannot record a response, for the same reason: those are all things that
+either widen who can be reached or fake who answered.
 
 **The signal you chose wrong:** you are writing code that mints a send link per
-user. Switch to a key.
+user, or you are asking a human to open the app just to create a channel your
+own backend already knows the details of. Both mean you wanted a key.
 
-Both start the same way: **you ask the human.** You cannot create either
-credential. This question only changes what to ask for.
+> **Ask, if it isn't obvious from the request:** "Is the set of people/teams
+> that need alerting fixed and known today (ops, on-call, your own
+> departments), or does your product create channels or discover people to
+> alert as part of its own runtime behaviour (signups, customer onboarding,
+> per-team provisioning)?" First → send link, stop reading here. Second →
+> keep reading; which of the two API-key cases below fits depends on whether
+> what's dynamic is *teams* (provisioning) or *individual people* (direct
+> alerts).
+
+Every credential here is still asked for, never invented: **you ask the human
+to mint the first API key**, the same as a send link. After that one key
+exists, your code can provision as many channels as it needs without asking
+again — provisioning is what the key is FOR.
 
 ## Before the first alert: get a send link
 
@@ -127,6 +213,13 @@ unaccepted number returns `404 not_a_recipient`, not a silent success.
 
 Wait for the key before continuing, the same as the link — there is no way to
 detect it appearing, and no value you can invent in its place.
+
+**Once you have it, that is the only ask.** If the project needs team
+channels too — a CRM creating a channel per sales team, for instance — the
+same key provisions them; you do not go back to the human for each one. See
+[Provisioning a team](https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md#provisioning) —
+`POST /api/v1/channels` returns that channel's send link in the same call, and
+alerting still goes through the returned link, never through the key.
 
 ## The send link is a credential
 
@@ -371,7 +464,13 @@ record a response would let whoever holds it approve on somebody's behalf.
 ## Responses
 
 `--respond "On it,Seen"` offers buttons. **The first label is `SHARED`, the
-rest are `PERSONAL`**, and a trailing `!` forces `SHARED`.
+rest are `PERSONAL`**, and a trailing `!` forces `SHARED`. This split exists
+because "somebody dealt with it" and "everybody needs to see this" are
+different questions, and collapsing them was the original bug: a channel
+where one person tapping a button silenced everyone else's phone even on the
+alerts where every individual actually needed to acknowledge separately (a
+broadcast, a policy change), or the reverse — an alert nagging every phone
+long after one on-call engineer had already picked it up.
 
 - **`SHARED`** — *"I am taking this on."* Every other phone stops immediately
   and nobody else can answer. Use it when one person handling it means the job
@@ -380,8 +479,10 @@ rest are `PERSONAL`**, and a trailing `!` forces `SHARED`.
   everyone else keeps being reached. Use it when every individual must
   acknowledge.
 
-The question to ask: *if one person handles this, is the job done?* Yes →
-`SHARED`. No, I need everyone → `PERSONAL`.
+> **Ask, whenever it isn't obvious from what the alert is for:** "If one
+> person taps a response, is the job done for everyone — or does every
+> person on this channel need to answer individually?" First → make that
+> option (or all of them) `SHARED`. Second → leave it `PERSONAL`.
 
 ## Defaults that are assumed wrong
 
@@ -389,13 +490,30 @@ Each of these has been guessed incorrectly. Do not write code that assumes
 otherwise:
 
 - **`isAutoClose` defaults to `false`.** A `SHARED` response stands the other
-  phones down but **does not close the alert**. Closing says the thing is over,
-  and usually only a person can say that. Pass `--auto-close` for genuine
-  fire-and-forget.
+  phones down but **does not close the alert**. Closing says the thing is
+  over, and usually only a person can say that — this is why the default is
+  "stays open": the original failure was alerts auto-closing the moment
+  anyone tapped a button, so a problem that was only "somebody saw it," not
+  "somebody fixed it," silently stopped being tracked. Pass `--auto-close`
+  for genuine fire-and-forget, where a response really does mean done.
+
+  > **Ask if it's ambiguous:** "Once someone responds, is the situation
+  > actually resolved, or does it just mean someone is now looking into it?"
+  > First → `--auto-close`. Second → leave the default; something (a person,
+  > or your own code once it confirms the fix) has to close it explicitly
+  > later.
+
 - **Severity defaults to `MEDIUM`, and omitting it is fine.** `MEDIUM`
   interrupts every phone; only `HIGH` and `CRITICAL` place phone calls, 45
   seconds after nobody has answered. The default is deliberately below the
-  dialling threshold.
+  dialling threshold, because the original mistake ran the other way: every
+  integration reached for the highest severity available "to be safe," which
+  meant every alert escalated to a phone call and severity stopped meaning
+  anything. Don't ask about this one by default — pick `MEDIUM` unless the
+  condition is one where minutes of nobody noticing causes real harm (an
+  outage, a security event, money moving), in which case say so and use
+  `HIGH`/`CRITICAL` rather than asking; this is a judgment call the agent
+  should make, not defer.
 - **A bare link with no title raises nothing.** It is the connection test —
   that is what stops link previews and crawlers from waking a team. Never ask
   for a default title.
