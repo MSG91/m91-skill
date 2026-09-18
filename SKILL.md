@@ -91,6 +91,43 @@ at the wrong channel.
 Wait for the link before continuing — there is no way to detect it appearing,
 and no value you can invent in its place.
 
+## Before the first alert: get an API key
+
+Only if the project needs one — see "Which credential does this project need?"
+above. Most projects want a send link instead; skip this section if that is
+what you already asked for.
+
+**You cannot create an API key** either. Same rule as the send link: it is
+minted in the app, by a person, and there is no API for it.
+
+**Ask them for the key**, and say exactly where to find it:
+
+> Open the M91 app → **Settings → Advanced settings → API keys → Create**.
+> Give it a label (the name of this project is fine). **The key is shown once
+> and never again — copy it now.** If it is lost before it is saved anywhere,
+> revoke it and create a new one; there is no way to retrieve the original.
+
+Have them put it wherever this project already keeps its secrets — an
+`M91_API_KEY` environment variable is the usual choice — and confirm the
+variable name back to you rather than pasting the key into chat.
+
+**The key does not skip the human-accepts step.** It lets your server invite
+and alert a phone number, but that person still has to install M91 and accept
+— exactly like a channel member. Before writing the integration, invite a real
+test number and confirm you see `state: "pending"` or `"accepted"`:
+
+```bash
+./scripts/m91.sh invite --phone <a real number> --label "Test"
+```
+
+A `401` means the key is wrong or was revoked — send them back to Settings →
+Advanced settings → API keys to copy it again. Once invited, that person must
+open M91 and accept before `./scripts/m91.sh alert` can reach them; alerting an
+unaccepted number returns `404 not_a_recipient`, not a silent success.
+
+Wait for the key before continuing, the same as the link — there is no way to
+detect it appearing, and no value you can invent in its place.
+
 ## The send link is a credential
 
 The token sits in the URL path, which is what lets any tool with a "URL to
