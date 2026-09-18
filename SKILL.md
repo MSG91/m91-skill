@@ -36,6 +36,34 @@ exits `3` to say so — do not report that as working.
 `send` options: `--title` (required), `--description`, `--severity`,
 `--custom-id`, `--respond "On it,Seen"`, `--auto-close`.
 
+## Which setup does this project need?
+
+One question, and it decides everything else:
+
+> **Does the number of channels grow as the user gets more customers?**
+
+**No — use a send link.** This is almost every project: a server, a cron, CI, a
+monitoring tool, a job that fails. The people alerted are *their team*, a fixed
+group. A person creates one channel in the app, you use its link, done. **Default
+to this.**
+
+**Yes — they need an API key.** They are building a *product* whose own users
+get alerted: teams created from their frontend, recipients that are rows in
+their database. Reference:
+<https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md>
+
+Why it matters: a send link's *value is the address*, so one link per channel is
+perfect while the secrets live in different places. It breaks when one system
+alerts many groups — 200 teams becomes 200 credentials in a database, each able
+to wake somebody through Do Not Disturb, with no rotation.
+
+**Never reach for the key by default.** It can wake everybody in the account,
+where a link can only wake one channel. And if you ever find yourself minting a
+link per user, stop — that is the signal the project needed a key.
+
+Both start the same way: **you ask the human.** You cannot create either
+credential. The only thing this question changes is *what to ask for*.
+
 ## Before the first alert: get a send link
 
 **You cannot create a channel, invite anybody, or obtain a send link.** Those
@@ -185,8 +213,12 @@ go-ahead — raise it with the answers as `SHARED` options, then poll:
 curl -sS "$M91_SEND_LINK/alerts/refund-40122"     # → data.decision, or null
 ```
 
-**Read `decision`.** It is the `SHARED` response that took the alert on, or
-`null` while nobody has. A `PERSONAL` response never becomes a decision — it is
+**Compare `decision.label`.** It is the `SHARED` response that took the alert
+on, or `null` while nobody has. **Never branch on whether `decision` exists** —
+"Reject" is a decision and it is truthy, so `if (decision) proceed` approves
+the thing the person just refused. Both answers are `SHARED`; the label is what
+separates yes from no, and anything that is not an explicit yes — a rejection,
+or a timeout — is a no. A `PERSONAL` response never becomes a decision — it is
 an acknowledgement, and reading "Seen" as "Approved" is the mistake this
 separation exists to prevent. All responses of either kind are in `responses`.
 
