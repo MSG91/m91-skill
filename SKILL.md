@@ -57,6 +57,38 @@ Two ways to get it wrong in each direction:
 - **Silently picking a default for something flagged below** — the failure
   mode this section exists to prevent.
 
+## Pick the setup first
+
+One question decides almost everything else: **can a person write down today
+who should be woken?**
+
+| If | Setup | What you do |
+|---|---|---|
+| Yes — an ops team, an on-call rota, a fixed list | **Send link, no API key** | Ask them to make the channel in the app and paste you the link. **Most projects. Default here.** |
+| No — your product invents the groups (a CRM creating "Sales Team") | **API key → provisioning** | `POST /api/v1/channels` on team-create, save `_id` + `sendLink`, add/remove members on join/leave. Alert via the saved link |
+| No — a different individual each time, discovered at runtime | **API key → direct alerts** | `POST /api/v1/recipients` at signup, `POST /api/v1/alerts` when the decision comes up |
+| Both groups and individuals | **Both of the above** | And treat the two consents as separate — see below |
+
+Worked end-to-end examples for all four, with the exact calls in the order
+they go in a real integration:
+<https://siren-backend-1091285226236.asia-south1.run.app/api/public/platform-api.md#setups>
+
+Three things that decide the setup, and are wrong by default if you guess:
+
+- **Invite at signup, never when the alert fires.** The person has to install
+  M91 and accept, so an invite sent at the moment a decision is waiting has
+  already failed. Put `POST /api/v1/recipients` on the signup or first-login
+  path.
+- **Consent is per channel and does not carry over.** Somebody who accepted
+  direct alerts is still only `INVITED` when you add them to a team channel,
+  and team alerts do not reach them until they accept that too. It fails
+  silently — the invite call reports success and the channel is just quieter
+  than you expect. Read `already` (accepted) against `invited`/`pending` (not
+  yet) in the response.
+- **Save what provisioning returns, immediately.** `POST /api/v1/channels`
+  hands back `_id` and `sendLink` once. Nothing looks them up later, and
+  calling it again makes a second channel rather than finding the first.
+
 ## Which credential does this project need?
 
 The question is **who gets woken**, and separately, **who provisions**. This
