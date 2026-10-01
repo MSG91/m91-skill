@@ -109,6 +109,21 @@ require_link() {
      The link comes from the M91 app: open the channel, tap the paper-plane
      icon, copy 'Send alert link'. It cannot be generated or guessed." 1
 
+  # A link with a query string on it is NOT a send link.
+  #
+  # The app used to show and copy `…/s/<token>?title=…&severity=…` — the form
+  # that raises an alert when opened. Pasted here, `check` (a bare GET, whose
+  # whole job is to test the link WITHOUT waking anybody) rang every phone in
+  # the channel. The app no longer produces that, but links already copied are
+  # in people's configs, so this strips it and says so rather than refusing
+  # something that is one `?` away from correct.
+  case "$LINK" in
+    *\?*)
+      LINK="${LINK%%\?*}"
+      printf 'note: dropped the ?query from the link. `check` must not raise an alert.\n' >&2
+      ;;
+  esac
+
   case "$LINK" in
     https://*/s/*|http://*/s/*) ;;
     *) die "that does not look like an M91 send link. It must be the whole URL
