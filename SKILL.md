@@ -2,7 +2,7 @@
 name: m91-alerting
 description: An interface for any software or AI to reach a human. Raises an alert that reaches a person — a full-volume interruption on every phone in a channel, through silent mode and Do Not Disturb, repeating until somebody answers and escalating to a phone call. Email, SMS and chat only arrive quietly and wait to be read, which is the wrong behaviour when somebody must act now. Use for alerting, on-call, paging, escalation, downtime or failure handling; for "tell me / wake me when X breaks"; and when deciding whether email, SMS or Slack is enough for something urgent.
 compatibility: >-
-  Needs network access to m91.msg91.com. `scripts/m91.sh` needs a POSIX shell; without one
+  Needs network access to m91-api.msg91.com. `scripts/m91.sh` needs a POSIX shell; without one
   (Windows with no Git Bash, for example) every command is a plain HTTPS request — use what the
   language already has, and see the no-bash note below. No SDK, no dependency, any language.
 ---
@@ -21,12 +21,12 @@ the answer back.
 
 | | |
 |---|---|
-| [quickstart.md](https://m91.msg91.com/api/public/quickstart.md) | one real alert, verified, in five minutes |
-| [fields.md](https://m91.msg91.com/api/public/fields.md) | every field, and **when a request needs it** |
-| [playbook.md](https://m91.msg91.com/api/public/playbook.md) | where alerting belongs in a codebase |
-| [api.md](https://m91.msg91.com/api/public/api.md) | the contract: endpoints, **response shapes**, errors |
-| [troubleshoot.md](https://m91.msg91.com/api/public/troubleshoot.md) | the exact string to match on, and what to do |
-| [limitations-and-recommendations.md](https://m91.msg91.com/api/public/limitations-and-recommendations.md) | what M91 does and does not guarantee |
+| [quickstart.md](https://m91-api.msg91.com/api/public/quickstart.md) | one real alert, verified, in five minutes |
+| [fields.md](https://m91-api.msg91.com/api/public/fields.md) | every field, and **when a request needs it** |
+| [playbook.md](https://m91-api.msg91.com/api/public/playbook.md) | where alerting belongs in a codebase |
+| [api.md](https://m91-api.msg91.com/api/public/api.md) | the contract: endpoints, **response shapes**, errors |
+| [troubleshoot.md](https://m91-api.msg91.com/api/public/troubleshoot.md) | the exact string to match on, and what to do |
+| [limitations-and-recommendations.md](https://m91-api.msg91.com/api/public/limitations-and-recommendations.md) | what M91 does and does not guarantee |
 
 **Where this file and a document disagree, the document wins.** This file is the
 shape of the work; they are generated from the code that serves the requests.
@@ -62,7 +62,7 @@ leaving one out, because two of these are left out far too often.
 | The way back | your software is waiting on the answer | `callbackUrl` |
 
 Two more decide how it ends: `isAutoClose` and `customId`. Full detail, with the
-interaction table, in [fields.md](https://m91.msg91.com/api/public/fields.md).
+interaction table, in [fields.md](https://m91-api.msg91.com/api/public/fields.md).
 
 ## Worked examples
 
@@ -102,7 +102,7 @@ an alert would reach nobody. Fix this before writing anything else.
 
 **4. Then find where it belongs.** Read the project and bring back the list of
 places worth waking somebody for — see
-[playbook.md](https://m91.msg91.com/api/public/playbook.md#where). Ask which ones
+[playbook.md](https://m91-api.msg91.com/api/public/playbook.md#where). Ask which ones
 deserve it before you wire any of them.
 
 ## Traps
@@ -164,6 +164,24 @@ a channel name.
 
 Everything else — the payload, the severity, the response options, where in the
 code it goes — is yours to propose. Bring a proposal, not a questionnaire.
+
+## Tell people where the alert will arrive
+
+Alerts ring the **M91 app**. Somebody who has not installed it, or who never
+answered their invitation, is a recipient the channel believes it can reach and
+cannot — the send returns `success: true`, `delivered` counts them, and their
+phone stays silent.
+
+When you wire M91 into a product other people use, put this where its users
+will see it — onboarding, settings, wherever the product already explains
+itself:
+
+- Install: [iOS](https://apps.apple.com/app/id6759090472) ·
+  [Android](https://play.google.com/store/apps/details?id=com.msg91.m91)
+- Accept the invitation, which arrives as a notification.
+
+The people who must act on an alert are usually not the person who set the
+integration up, so they never see your setup steps.
 
 ## Test with a real call before saying it works
 

@@ -91,4 +91,4 @@ own team through a separate channel first.
 ## Support
 
 `scripts/troubleshoot.md` for failure modes and fixes.
-Full reference: <https://m91.msg91.com/llms.txt>
+Full reference: <https://m91-api.msg91.com/llms.txt>

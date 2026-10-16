@@ -16,9 +16,9 @@ shape:
 Grouped by where in the lifecycle it went wrong: did the request arrive, was it
 rejected before an alert existed, was the alert raised but nobody reached, was it
 a repeat, did closing fail. Covers both the send link and the API key. See
-[`api.md`](https://m91.msg91.com/api/public/api.md) for the reference this guide assumes,
+[`api.md`](https://m91-api.msg91.com/api/public/api.md) for the reference this guide assumes,
 and
-[`limitations-and-recommendations.md`](https://m91.msg91.com/api/public/limitations-and-recommendations.md)
+[`limitations-and-recommendations.md`](https://m91-api.msg91.com/api/public/limitations-and-recommendations.md)
 for what M91 does and does not guarantee — *before* you hit it, not after.
 
 Every error body is
@@ -35,12 +35,12 @@ explanation.
 
 ### The call never completes — connection refused, DNS failure, or a hang
 - no response body at all
-- **Cause** — no network route to `m91.msg91.com` from where the code is running.
+- **Cause** — no network route to `m91-api.msg91.com` from where the code is running.
   Common in CI, in a container with egress rules, and in agent sandboxes.
 - **Why** — every other entry in this file assumes a response. If there is no
   response, nothing below applies and no amount of payload fixing will help.
 - **Fix** — test the host itself, not the API: `curl -sS -o /dev/null -w '%{http_code}'
-  https://m91.msg91.com/api/public/index.md` should print `200`. If it does not,
+  https://m91-api.msg91.com/api/public/index.md` should print `200`. If it does not,
   the problem is egress, not M91. **If you are an agent in a sandbox: say you
   could not verify.** Write the integration, leave the link in configuration, and
   give the person the exact command to run. Never report alerting as working when
@@ -53,7 +53,7 @@ explanation.
 - **Why** — the same error code is raised by genuine quoting mistakes in the
   body, so this reads as a payload bug and is not one.
 - **Fix** — use `Invoke-RestMethod` with `ConvertTo-Json` rather than `curl.exe`.
-  See [the quickstart](https://m91.msg91.com/api/public/quickstart.md#no-bash).
+  See [the quickstart](https://m91-api.msg91.com/api/public/quickstart.md#no-bash).
 
 ## The link itself
 
@@ -67,7 +67,7 @@ explanation.
 - **Match** — `{"success":true,"data":{"ok":true,"channel":{...}}}`
 - **Cause** — **not a failure.** A `GET` with no `title` is the connection test and deliberately raises nothing.
 - **Why** — That is what stops link previews, chat unfurls, mail scanners and crawlers from waking a team when the URL is pasted somewhere
-- **Fix** — add `?title=...` to raise a real alert. Never expect a bare link to alert, and never ask for a default title — see [`title`](https://m91.msg91.com/api/public/fields.md#title)
+- **Fix** — add `?title=...` to raise a real alert. Never expect a bare link to alert, and never ask for a default title — see [`title`](https://m91-api.msg91.com/api/public/fields.md#title)
 
 ### A link opened in a browser returns a web page instead of JSON
 - **Match** — `Content-Type: text/html` on a `GET .../s/<token>?title=...`
@@ -79,7 +79,7 @@ explanation.
 ### 400 VALIDATION_ERROR — title missing
 - **Match** — `"title is required"`
 - **Cause** — no `title` (or its alias `summary`) in the body, or no `title=` in the query string. It is the one always-required field
-- **Fix** — send a `title`. On the link form it is required by design and has no default — see the security note in [`title`](https://m91.msg91.com/api/public/fields.md#title)
+- **Fix** — send a `title`. On the link form it is required by design and has no default — see the security note in [`title`](https://m91-api.msg91.com/api/public/fields.md#title)
 
 ### 400 VALIDATION_ERROR — title too short or too long
 - **Match** — `"title must be at least 5 characters"`, `"title must be 2000 characters or fewer"`
@@ -90,7 +90,7 @@ explanation.
 - **Match** — `"Unknown field: "`, `"Unknown fields: "`, `". Check the spelling."`
 - **Cause** — a field that is not part of the contract.
 - **Why** — Usually a typo (`titel`, `serverity`, `custom_id`), a field from some other alerting product (`priority`, `source`, `tags`, `assignee`), or recipients passed in the payload. The schema is strict on purpose: silently dropping an unknown key is how an alert goes out with no title
-- **Fix** — the named key is in the message. Use only the documented fields — see [Alert fields](https://m91.msg91.com/api/public/api.md#post). There is no recipient field at all: the channel *is* the recipient list
+- **Fix** — the named key is in the message. Use only the documented fields — see [Alert fields](https://m91-api.msg91.com/api/public/api.md#post). There is no recipient field at all: the channel *is* the recipient list
 
 ### 400 VALIDATION_ERROR — bad severity
 - **Match** — `"severity must be one of: LOW, MEDIUM, HIGH, CRITICAL"`
@@ -100,7 +100,7 @@ explanation.
 ### 400 VALIDATION_ERROR — bad response effect
 - **Match** — `"must be SHARED or PERSONAL"`
 - **Cause** — an `effect` other than those two literals, usually lowercase or a synonym (`shared`, `ack`, `acknowledge`, `claim`)
-- **Fix** — uppercase `SHARED` or `PERSONAL` exactly, or omit `effect` — it defaults to `SHARED`. They mean responsibility, not mechanism: see [Responses](https://m91.msg91.com/api/public/fields.md#responses)
+- **Fix** — uppercase `SHARED` or `PERSONAL` exactly, or omit `effect` — it defaults to `SHARED`. They mean responsibility, not mechanism: see [Responses](https://m91-api.msg91.com/api/public/fields.md#responses)
 
 ### 400 VALIDATION_ERROR — response option problems
 - **Match** — `"must be 24 characters or fewer"`, `"cannot repeat the same label twice"`, `"cannot offer more than 20 options"`, `"cannot offer more than 6 options in a link"`
@@ -137,10 +137,10 @@ explanation.
 - **Why** — The channel has nobody who can receive an alert. Either nobody has accepted their invite, or the people who accepted have not installed M91 and signed in. `details.unregistered` lists the second group
 - **Fix** — people must **accept** the invite in the app and have M91 installed. An invite is an offer, not membership. This is the most common reason a correct integration reaches nobody, and it is worth checking before debugging anything else
 
-### delivered: 0 on a 201
+### delivered: 0
 - **Match** — `"delivered":0` alongside `"success":true`
-- **Cause** — the alert was created and nothing was sent to anybody. Either no recipient has a device registered.
-- **Why** — Check `unregistered` and `noDevice`, which say which kind — or this was a deduplicated send, in which case `"deduplicated":true` is also present and nobody needed alerting again
+- **Cause** — on a `201`, the alert was created and nothing was sent to anybody, because no recipient has a device registered. On a `200`, it was a repeat.
+- **Why** — On a `201`, check `unregistered` and `noDevice`, which say which kind. On a `200`, `"deduplicated":true` is also present and nobody needed alerting again
 - **Fix** — assert on `delivered`, not on the status code, and check `deduplicated` first so a suppressed repeat is not read as a failure. If `deduplicated` is absent, the roster is the problem: invites accepted, app installed, signed in, and opened at least once on each phone
 
 ### unregistered is not empty
@@ -179,14 +179,14 @@ explanation.
 ### 429 RATE_LIMITED
 - **Match** — `"code":"RATE_LIMITED"`, `"which is its limit"`
 - **Cause** — more than 60 alerts in a minute on one link. Almost always a condition that keeps firing with no `customId`, or a retry loop with no backoff
-- **Fix** — honour the `Retry-After` header. Then fix the cause: add a `customId` so repeats collapse into one alert, and close it when the condition clears. See [Repeating problems](https://m91.msg91.com/api/public/api.md#repeats)
+- **Fix** — honour the `Retry-After` header. Then fix the cause: add a `customId` so repeats collapse into one alert, and close it when the condition clears. See [Repeating problems](https://m91-api.msg91.com/api/public/api.md#repeats)
 
 ## Closing an alert
 
 ### 404 NOT_FOUND on close
 - **Match** — `"code":"NOT_FOUND"`, `"alert_not_found"`
-- **Cause** — **normal on a healthy run.** No alert with that `customId` exists on this channel.
-- **Why** — Usually because the condition never went bad, or the alert was already closed by a person in the app
+- **Cause** — **normal on a healthy run.** No alert with that `customId` (or `alertId`) exists on this channel.
+- **Why** — Usually because the condition never went bad. An alert that exists but is already closed answers `403`, not `404` — see below
 - **Fix** — treat `404` on close as success. Code that logs it as an error will log one on every healthy check
 
 ### 403 FORBIDDEN on close
@@ -203,7 +203,7 @@ explanation.
 - no `match` — the send returns `200` with `"deduplicated":true`
 - **Cause** — while an alert is open, a repeat of its `customId` is **inert**.
 - **Why** — The payload is discarded entirely, not just the notification. The title, description and severity you sent are ignored and the alert keeps what it was created with, so a condition that worsened cannot escalate itself this way
-- **Fix** — an alert that must interrupt people again is a different alert. Use a separate `customId` for the worse condition, or close the first so the next send raises fresh. See [The lifecycle](https://m91.msg91.com/api/public/api.md#repeats)
+- **Fix** — an alert that must interrupt people again is a different alert. Use a separate `customId` for the worse condition, or close the first so the next send raises fresh. See [The lifecycle](https://m91-api.msg91.com/api/public/api.md#repeats)
 
 ### Responses vanished after an alert came back
 - no `match` — the alert is open again with nobody shown as having answered
@@ -261,7 +261,7 @@ alerting somebody directly.
   read returns `undefined` rather than throwing, so the call looks like it
   succeeded and returned nothing — which is exactly what it did.
 - **Fix** — read `body.data.state`. The full shape of every endpoint is in
-  [api.md](https://m91.msg91.com/api/public/api.md#responses).
+  [api.md](https://m91-api.msg91.com/api/public/api.md#responses).
 
 ### 401 UNAUTHORIZED on every API-key call
 - `match`: `"UNAUTHORIZED"`
@@ -273,14 +273,16 @@ alerting somebody directly.
 ### 404 not_a_recipient when alerting a phone number
 - `match`: `"not_a_recipient"`
 - **Cause** — that phone number was never invited through `POST /api/v1/recipients`,
-  or was invited and has not accepted yet.
+  or `phone` is not written exactly as it was invited. (Invited but not accepted
+  yet is a different error: `409 CHANNEL_EMPTY`.)
 - **Why** — an alert must never be what invites somebody. An invited person is
   not an M91 user yet, so the urgent thing would arrive as an ordinary message
   that does not pierce Do Not Disturb, does not repeat and does not escalate.
-  Failing loudly is better than delivering something that cannot wake anybody.
+  Failing loudly is beter than delivering something that cannot wake anybody.
 - **Fix** — invite, then wait for them to accept. **This is the step most
   integrations forget.** `reachable: false` on the invite response means they
-  have not accepted; poll `GET /api/v1/recipients` or just handle the 404.
+  have not accepted. Sending the same `POST /api/v1/recipients` again is safe
+  and returns their current `state`, or just handle the `409`.
 
 ### reachable: false and it never becomes true
 - `match`: `"reachable": false`
@@ -308,7 +310,7 @@ alerting somebody directly.
 ### A SHARED response did not close the alert
 - no `match` — the alert stays `OPEN` after somebody responds
 - **Cause** — **by design.** `isAutoClose` defaults to `false`. A `SHARED` response stands every other phone down immediately, but it does not end the alert: closing says the thing is *over*, and usually only a person can say that. Auto-closing removes the alert from everyone's screen before anybody can see who took it or what came of it
-- **Fix** — nothing, if you want a record somebody can act on and close. Send `isAutoClose: true` for genuine fire-and-forget. See [When an alert ends](https://m91.msg91.com/api/public/api.md#ends)
+- **Fix** — nothing, if you want a record somebody can act on and close. Send `isAutoClose: true` for genuine fire-and-forget. See [When an alert ends](https://m91-api.msg91.com/api/public/api.md#ends)
 
 ### An alert with no response options never closes
 - no `match` — the alert sits `OPEN` indefinitely

@@ -80,7 +80,10 @@ DESC="$ACTION — in $(basename "${CLAUDE_PROJECT_DIR:-$PWD}"). Nobody answering
 
 body="{\"title\":\"$(json_escape "$TITLE")\",\"description\":\"$(json_escape "$DESC")\",\"severity\":\"HIGH\",\"customId\":\"$ID\",\"responseOptions\":[{\"label\":\"Approve\",\"effect\":\"SHARED\"},{\"label\":\"Reject\",\"effect\":\"SHARED\"}]}"
 
-curl -sS --max-time 10 -X POST "$LINK" -H 'Content-Type: application/json' -d "$body" >/dev/null 2>&1 || exit 0
+# Follows redirects, keeping POST and its body (--post30x): send links on
+# m91.msg91.com are being moved behind a redirect to m91-api.msg91.com, and a
+# curl that did not follow one silently sent nothing.
+curl -sS -L --post301 --post302 --post303 --max-time 10 -X POST "$LINK" -H 'Content-Type: application/json' -d "$body" >/dev/null 2>&1 || exit 0
 
 decide() { # decide <allow|deny> <reason>
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"%s","permissionDecisionReason":"%s"}}\n' \
@@ -91,18 +94,18 @@ decide() { # decide <allow|deny> <reason>
 deadline=$(( $(date +%s) + WAIT ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
   sleep "$POLL"
-  out=$(curl -sS --max-time 10 "$LINK/alerts/$ID" 2>/dev/null) || continue
+  out=$(curl -sS -L --post301 --post302 --post303 --max-time 10 "$LINK/alerts/$ID" 2>/dev/null) || continue
 
   # Compare the LABEL. A rejection is a decision and it is truthy, so testing
   # only for the presence of `decision` would approve what somebody refused.
   case "$out" in
     *'"decision":{'*'"label":"Approve"'*)
-      curl -sS --max-time 10 -X POST "$LINK/close" -H 'Content-Type: application/json' \
+      curl -sS -L --post301 --post302 --post303 --max-time 10 -X POST "$LINK/close" -H 'Content-Type: application/json' \
         -d "{\"customId\":\"$ID\"}" >/dev/null 2>&1
       decide allow "Approved on M91"
       ;;
     *'"decision":{'*'"label":"Reject"'*)
-      curl -sS --max-time 10 -X POST "$LINK/close" -H 'Content-Type: application/json' \
+      curl -sS -L --post301 --post302 --post303 --max-time 10 -X POST "$LINK/close" -H 'Content-Type: application/json' \
         -d "{\"customId\":\"$ID\"}" >/dev/null 2>&1
       decide deny "Rejected on M91"
       ;;
@@ -112,6 +115,6 @@ done
 # Nobody answered. Close so the next occurrence can raise a fresh alert — an
 # alert left open swallows every future repeat of this customId — then deny,
 # because for an approval gate silence is a No.
-curl -sS --max-time 10 -X POST "$LINK/close" -H 'Content-Type: application/json' \
+curl -sS -L --post301 --post302 --post303 --max-time 10 -X POST "$LINK/close" -H 'Content-Type: application/json' \
   -d "{\"customId\":\"$ID\"}" >/dev/null 2>&1
 decide deny "No answer on M91 within $((WAIT / 60)) minutes"

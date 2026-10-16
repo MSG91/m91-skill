@@ -47,7 +47,7 @@
 #
 # The key can never mint an ADDITIONAL send link beyond the one automatic
 # owner sender a new channel already gets, and it cannot record a response.
-# See platform-api.md.
+# See api.md.
 #
 # The API key comes from M91_API_KEY, or --api-key. The host it calls comes
 # from M91_API, or --api (default: the hosted M91 API).
@@ -62,7 +62,8 @@ TIMEOUT="${M91_TIMEOUT:-10}"
 # link addresses a channel by BEING its secret; an API key addresses a person
 # BY NAME against a fixed host, so it needs a host to call, not a per-target URL.
 API_KEY="${M91_API_KEY:-}"
-API_HOST="${M91_API:-https://siren-backend-1091285226236.asia-south1.run.app}"
+# Was the Cloud Run host; the API now has its own domain. Both still work.
+API_HOST="${M91_API:-https://m91-api.msg91.com}"
 
 die()  { printf 'm91: %s\n' "$1" >&2; exit "${2:-1}"; }
 note() { printf 'm91: %s\n' "$1" >&2; }
@@ -159,10 +160,13 @@ call() { # call <method> <url> [data]
   # the send-link path, which authenticates via the token already in the URL.
   [ -n "${AUTH_HEADER:-}" ] && auth=(-H "$AUTH_HEADER")
   if [ -n "$data" ]; then
-    out=$(curl -sS --max-time "$TIMEOUT" -X "$method" "$url" \
+    # Follows redirects, keeping POST and its body (--post30x): send links on
+    # m91.msg91.com are being moved behind a redirect to m91-api.msg91.com, and a
+    # curl that did not follow one silently sent nothing.
+    out=$(curl -sS -L --post301 --post302 --post303 --max-time "$TIMEOUT" -X "$method" "$url" \
       "${auth[@]}" -H 'Content-Type: application/json' -d "$data" -w $'\n%{http_code}' 2>&1)
   else
-    out=$(curl -sS --max-time "$TIMEOUT" -X "$method" "$url" \
+    out=$(curl -sS -L --post301 --post302 --post303 --max-time "$TIMEOUT" -X "$method" "$url" \
       "${auth[@]}" -w $'\n%{http_code}' 2>&1)
   fi
   if [ $? -ne 0 ]; then
