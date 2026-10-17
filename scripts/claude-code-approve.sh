@@ -80,9 +80,7 @@ DESC="$ACTION — in $(basename "${CLAUDE_PROJECT_DIR:-$PWD}"). Nobody answering
 
 body="{\"title\":\"$(json_escape "$TITLE")\",\"description\":\"$(json_escape "$DESC")\",\"severity\":\"HIGH\",\"customId\":\"$ID\",\"responseOptions\":[{\"label\":\"Approve\",\"effect\":\"SHARED\"},{\"label\":\"Reject\",\"effect\":\"SHARED\"}]}"
 
-# Follows redirects, keeping POST and its body (--post30x): send links on
-# m91.msg91.com are being moved behind a redirect to m91-api.msg91.com, and a
-# curl that did not follow one silently sent nothing.
+# -L --post30x: follow redirects and keep the POST body.
 curl -sS -L --post301 --post302 --post303 --max-time 10 -X POST "$LINK" -H 'Content-Type: application/json' -d "$body" >/dev/null 2>&1 || exit 0
 
 decide() { # decide <allow|deny> <reason>
