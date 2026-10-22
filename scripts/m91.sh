@@ -162,7 +162,9 @@ call() { # call <method> <url> [data]
     # -L --post30x: follow redirects and keep the POST body.
     out=$(curl -sS -L --post301 --post302 --post303 --max-time "$TIMEOUT" -X "$method" "$url" \
       "${auth[@]}" -H 'Content-Type: application/json' -d "$data" -w $'\n%{http_code}' 2>&1)
-  else h[@]}" -w $'\n%{http_code}' 2>&1)
+  else
+    out=$(curl -sS -L --post301 --post302 --post303 --max-time "$TIMEOUT" -X "$method" "$url" \
+      "${auth[@]}" -w $'\n%{http_code}' 2>&1)
   fi
   if [ $? -ne 0 ]; then
     # curl's own message can contain the URL, and the URL is the credential.

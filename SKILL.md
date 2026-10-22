@@ -4,7 +4,9 @@ description: An interface for any software or AI to reach a human. Raises an ale
 compatibility: >-
   Needs network access to m91-api.msg91.com. `scripts/m91.sh` needs a POSIX shell; without one
   (Windows with no Git Bash, for example) every command is a plain HTTPS request — use what the
-  language already has, and see the no-bash note below. No SDK, no dependency, any language.
+  language already has, and see the no-bash note below. No dependency is required in any
+  language; client libraries exist for Python and TypeScript and are a convenience, not a
+  requirement.
 ---
 
 # M91 Alerting
@@ -35,6 +37,114 @@ shape of the work; they are generated from the code that serves the requests.
 carry on.** They are not a fallback — they are the same contract. Never work from
 memory.
 
+## Work out the shape from the situation
+
+Three things vary. **Nothing here is a question to put to the person** — they
+told you what they are building, and the code in front of you says the rest.
+Read it off, decide, and say what you decided and why. The only thing that
+cannot be derived is the credential itself, because it is minted by a human in
+the app.
+
+There is no catalogue of supported situations to match against. The one you are
+looking at will not be in it. These are the properties that determine the
+integration; everything else is detail.
+
+### Who must be woken determines the credential
+
+A **send link** addresses one channel a person made in the app. The token is in
+the URL, so it needs no headers and no client.
+
+An **API key** reaches recipients the software discovers and cannot know in
+advance. On that one credential it invites somebody by phone number and alerts
+them directly, and separately creates and staffs team channels. It can **never**
+alert a team channel: alerting one is always the send link that creating it
+returned.
+
+| What the code shows | Use |
+|---|---|
+| The people to wake are fixed, and the same every run | send link |
+| The destination is chosen per user, per tenant, per account, as the code runs | API key |
+
+Scale does not decide this. A product with ten thousand users alerting **its
+own** on-call team is a send link; a product that must reach *each of those
+users* is a key. The question answered by the code is whether the recipient is a
+constant or a variable.
+
+What the key adds, beyond anything a link can do (`./m91.sh <cmd> --help`, and
+[api.md](https://m91-api.msg91.com/api/public/api.md#credentials)):
+
+```
+invite --phone …        alert --phone …        decision --phone … --custom-id …
+remove --phone …        close-person --phone … --custom-id …
+create-channel --name …  team-invite --id … --phones …   team-remove --id … --phone …
+```
+
+A person must **accept** an invitation and install M91 before anything can reach
+them. An invitation is an offer, not membership.
+
+### What happens after the send determines how the answer returns
+
+Look at the line after the alert is raised. If execution continues regardless,
+nothing waits and there is nothing to collect. If the next statement depends on
+what a person decides, the answer has to come back, and where the code runs
+decides how.
+
+| What the code shows | Use |
+|---|---|
+| Nothing downstream depends on the answer | send, carry on |
+| Something waits, and the service already serves public HTTPS | `callbackUrl` — the outcome is POSTed when somebody answers |
+| Something waits, and it does not | read it back until `decision` is set |
+
+```bash
+curl -sS "$M91_SEND_LINK/alerts/the-condition"      # decision: null until answered
+```
+
+On an API key: `./m91.sh decision --phone <number> --custom-id the-condition`.
+
+**A callback needs two things**, and missing either forces reading back:
+
+- **Somewhere public for it to land.** M91's servers fetch the URL and refuse
+  private addresses — `localhost`, `127.0.0.1`, `10.x`, `192.168.x` — resolving
+  the name first, so a hostname pointing at one is refused too. A laptop, a
+  VPC, a CLI has nowhere.
+- **A run that can be resumed from outside.** An HTTP request cannot wake a call
+  that is already blocked. Where the run is checkpointed, it can: the state
+  persists, the run *ends*, and the callback resumes it — nothing is held open
+  and a restart mid-approval survives. A graph with a checkpointer is the
+  clearest case, and it is the better architecture where it is available.
+
+Blocking in-process has neither, and reads back. This is the most common wrong
+turn: the callback is written, nothing ever arrives, and the gate silently
+passes.
+
+**The timeout is yours.** There is no server-side expiry. Decide what silence
+means before sending, make it the safe outcome, and close the alert yourself.
+
+### The runtime determines whether a library is worth it
+
+Never required — the HTTP contract is the whole product, and in most languages
+this is one request with what the standard library already has.
+
+| What the code shows | Use |
+|---|---|
+| Any language, and nothing waits | the plain request |
+| Python or TypeScript, and the code must wait | the client library |
+| An agent framework with somewhere to put a blocking human step | the library's adapter for it |
+
+```
+npm i @msg91comm/m91
+```
+
+What it carries that you would otherwise write and test: the read-back loop, the
+timeout, the response parsing, and the redaction that keeps the token out of
+logs and error strings. Where a framework has a place for a blocking human step,
+the adapter makes the wait a node or a tool instead of a loop hand-rolled inside
+one.
+
+If the project is in neither language, this is not a gap — send the request.
+
+---
+
 ## Raise an alert
 
 ```bash
@@ -44,8 +154,9 @@ curl -sS -X POST "$M91_SEND_LINK" -H 'Content-Type: application/json' \
                           {"label":"Seen","effect":"PERSONAL"}]}'
 ```
 
-That is the whole integration. No SDK, no headers beyond the content type, no
-client library. `scripts/m91.sh` wraps the same calls if you want them named.
+That is the whole integration — no headers beyond the content type, and nothing
+to install. `scripts/m91.sh` wraps the same calls if you want them named, and a
+client library exists where it saves work (question 3 above).
 
 ## What any alert is made of
 
@@ -82,9 +193,11 @@ Find the situation here rather than inventing a shape.
 Each step says what a correct answer looks like. Do not go on until you have seen
 one.
 
-**1. Get the link.** It comes from the app: a person opens the channel, taps the
-paper-plane icon, and copies it. It cannot be generated, guessed or derived. **If
-you do not have one, ask.** Asking is correct; building around it is not.
+**1. Get the credential** that question 1 pointed at. A **send link** comes from
+the app — a person opens the channel, taps the paper-plane icon, and copies it.
+An **API key** is minted in the app too. Neither can be generated, guessed or
+derived. **If you do not have one, ask.** Asking is correct; building around it
+is not.
 
 **2. Prove it reaches the channel.**
 
@@ -162,8 +275,11 @@ Ask the person for: the send link or API key, which channel, and which condition
 are worth waking somebody for. Never fabricate a link or a key, and never invent
 a channel name.
 
-Everything else — the payload, the severity, the response options, where in the
-code it goes — is yours to propose. Bring a proposal, not a questionnaire.
+Everything else — which credential, how the answer comes back, whether a library
+earns its place, the payload, the severity, the response options, where in the
+code it goes — is yours to work out and propose. Bring a proposal, not a
+questionnaire. Say what you chose and why in a line; do not ask them to choose
+between things they have no way to compare.
 
 ## Tell people where the alert will arrive
 
