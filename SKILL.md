@@ -529,8 +529,9 @@ their phones; it is the alarm), and step 6 is item 5 below.
      "Mistakes to avoid"): a key handler like `onkeydown = (e) => e.key === 'Enter' && send()`
      returns `false` for every other key and cancels typing, so use
      `addEventListener` with a block body; while your window is focused macOS shows
-     no banner for your notification, so also show an in-window notice (click
-     opens the alert; a CRITICAL stays until opened or answered); a CSP without
+     no banner for your notification, so show an in-window notice INSTEAD (click
+     opens the alert; a CRITICAL stays until opened or answered), never both, or
+     the person gets it twice; a CSP without
      `media-src https://m91-api.msg91.com` silences the sound; inputs in grid or flex
      rows need `min-width: 0`. Type in every field and receive an alert with the
      window focused before calling the screens done.
