@@ -305,6 +305,84 @@ alerting somebody directly.
 - **Fix** — pass the same `customId` and phone number used to raise it. An
   already-closed alert is not an error worth retrying.
 
+## M91 in your app
+
+Errors from `/api/v1/app-tokens` and `/api/v1/inbox/*`. The guide is
+[M91 in your app](https://m91-api.msg91.com/api/public/m91-in-your-app.md).
+
+### 403 FORBIDDEN on POST /api/v1/app-tokens
+- **Match** — `"has not accepted any channel you own"`
+- **Cause** — the phone is not an accepted member of any active channel the API key's owner owns. Either they were never invited, have not accepted yet, or the channels they are in belong to somebody else
+- **Fix** — invite them (`POST /api/v1/recipients` or as a channel member) and wait for them to accept in the M91 app. If they are in channels made by a colleague, create the API key from the account that owns those channels
+
+### 401 UNAUTHORIZED — App token expired
+- **Match** — `"App token expired"`
+- **Cause** — normal: app tokens last one hour
+- **Fix** — get a fresh one from your server. The SDK's `M91Inbox` does this by itself through your `getToken`
+
+### 401 UNAUTHORIZED — Invalid app token, or the API key behind it was revoked
+- **Match** — `"Invalid app token"`, `"The API key behind this app token was revoked"`
+- **Cause** — a token that was not issued by `/api/v1/app-tokens`, was altered, or whose API key was revoked
+- **Fix** — your `getToken` must return what `/api/v1/app-tokens` returned, unchanged. If the key was revoked, create a new one on your server
+
+### 401 MISSING_CREDENTIAL on /api/v1/inbox/*
+- **Match** — `"code":"MISSING_CREDENTIAL"`
+- **Cause** — the request carried the API key (`m91sk_…`) or nothing. The inbox accepts only an app token (`m91at_…`)
+- **Fix** — your app sends the app token. The API key stays on your server
+
+### 404 NOT_FOUND on /api/v1/inbox/:id
+- **Match** — `"incident_not_found"`
+- **Cause** — no such alert, or it is not in this token's scope: on a channel the key's owner does not own, or one the person has left
+- **Fix** — drop it from your list. Re-read `GET /api/v1/inbox/needs-me`
+
+### 403 ALREADY_RESPONDED
+- **Match** — `"code":"ALREADY_RESPONDED"`
+- **Cause** — this person already answered, here or in the M91 app. Answers are final
+- **Fix** — stop ringing and show their answer. The same answer again is not an error: it returns the alert with `duplicate: true`
+
+### 403 ALREADY_CLAIMED
+- **Match** — `"code":"ALREADY_CLAIMED"`
+- **Cause** — somebody else gave a SHARED answer first
+- **Fix** — stop ringing and show who took it (`decision`)
+
+### 403 ALREADY_CLOSED
+- **Match** — `"code":"ALREADY_CLOSED"`
+- **Fix** — stop ringing; the alert is resolved
+
+### 403 CLOSE_NOT_ALLOWED
+- **Match** — `"code":"CLOSE_NOT_ALLOWED"`, `Somebody has to take this alert before it can be closed.`
+- **Cause** — `POST /api/v1/inbox/:id/close` while a SHARED answer is still up for grabs: closing then would end the alert for everyone while nobody has taken the work
+- **Fix** — show Close only when the alert's `canClose` is true. It turns true once somebody takes the alert or everyone has answered; the channel's owner may always close
+
+### 403 UNKNOWN_RESPONSE_OPTION or OTHER_NOT_OFFERED
+- **Cause** — `optionIndex` is not a position in this alert's `responseOptions`, or `-1` (Other) on an alert with `other: false`
+- **Fix** — build the buttons from the alert's own `responseOptions`, in order
+
+### 403 NOTE_REQUIRED or ATTACHMENT_REQUIRED
+- **Match** — `"code":"NOTE_REQUIRED"`, `"code":"ATTACHMENT_REQUIRED"`
+- **Cause** — the sender made that option require it (`required`)
+- **Fix** — ask for a note, or a file or `https` link, before sending. A file goes up first through `POST /api/v1/inbox/:id/attachments` and is sent as `attachmentKey`; a link is sent as `attachmentUrl`
+
+### 403 ATTACHMENT_REFUSED
+- **Match** — `"code":"ATTACHMENT_REFUSED"`; `message` starts `That file`, `That attachment` or `That link`
+- **Cause** — on `/attachments`: the `contentType` is not an allowed type. On `/respond`: the uploaded file is missing (`was not uploaded`: the PUT failed or was never made), too large, of a type not allowed, or the `attachmentKey` was not issued for this alert and this person (`does not belong to this alert`); or the `attachmentUrl` is not `https`, points at a private address, could not be fetched, is not an image, PDF, audio or video file, or is larger than the cap
+- **Fix** — images up to 2 MB (shrink bigger ones to JPEG first), PDF up to 5 MB, audio and video up to 25 MB. PUT the bytes with the returned `headers` unchanged, within 5 minutes, and send that same `key`. A link must point at the file itself, not a page that shows it
+
+### Nothing in any list, but the alert exists
+- no `match` — `GET /api/v1/inbox/:id` returns it; `needs-me`, `taken` and `closed` do not
+- **Cause** — it is open, nobody took it, and this person answered PERSONAL (such as "Seen"). It waits on the others, not on them
+- **Fix** — nothing. Read it with `GET /api/v1/inbox/:id` if you need it
+
+### Live events never arrive; status stays polling
+- no `match` — `rtlayer` is `null` in the token, or `onStatus` reports `polling`
+- **Cause** — M91 is running without live events. The SDK polls the inbox every 15 seconds instead
+- **Fix** — nothing in your code. Alerts still arrive, a few seconds later
+
+### Live events stop after a while
+- no `match` — `onStatus` reports `reconnecting`
+- **Cause** — your `getToken` is failing (your server is down, or the person was removed), so the SDK cannot reconnect
+- **Fix** — check `onError` and your token endpoint's logs. Nothing raised meanwhile is lost: the SDK re-reads the list as soon as it reconnects
+
 ## Behaviour that looks like a bug and is not
 
 ### A SHARED response did not close the alert

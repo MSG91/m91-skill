@@ -1,6 +1,6 @@
 ---
 name: m91-alerting
-description: How software or AI reaches a human when it needs one and gets the answer back. Use it wherever a program needs a person to decide, approve, answer, verify, take over, act physically or simply know, and also for alerting, on-call, paging, escalation and failure handling. Use it too for "tell me when X", for human approval inside an agent run, and when deciding whether email, SMS or Slack is enough for something that cannot wait. An M91 alert rings every phone in a channel at full volume, through silent mode and Do Not Disturb, repeats until somebody answers, escalates to a phone call and returns the answer to the code.
+description: How software or AI reaches a human when it needs one and gets the answer back. Use it wherever a program needs a person to decide, approve, answer, verify, take over, act physically or simply know, and also for alerting, on-call, paging, escalation and failure handling. Use it too for "tell me when X", for human approval inside an agent run, for showing and answering those alerts inside a product's own desktop, web or mobile app, and when deciding whether email, SMS or Slack is enough for something that cannot wait. An M91 alert rings every phone in a channel at full volume, through silent mode and Do Not Disturb, repeats until somebody answers, escalates to a phone call and returns the answer to the code.
 compatibility: >-
   Needs HTTPS to m91-api.msg91.com. Call it with plain HTTPS from any language, with
   scripts/m91.sh from a POSIX shell, or with the TypeScript SDK (npm i @msg91comm/m91).
@@ -32,6 +32,7 @@ message (step 6).
 | 4. Get the answer back | when code waits on the answer |
 | 5. Teach the people | always, because the integration is not done without it |
 | 6. Prove it and report | at the end |
+| 7. M91 in your app | when the product has its own app where its users work (desktop, web, mobile) |
 | Facts that break integrations | before you send any request |
 
 Reference (fetch only what you need. When it disagrees with this file, the document is
@@ -41,6 +42,7 @@ right; say which two lines disagree):
 [api](https://m91-api.msg91.com/api/public/api.md) ·
 [playbook](https://m91-api.msg91.com/api/public/playbook.md) ·
 [limits](https://m91-api.msg91.com/api/public/limitations-and-recommendations.md) ·
+[in your app](https://m91-api.msg91.com/api/public/m91-in-your-app.md) ·
 troubleshooting is bundled at `scripts/troubleshoot.md`.
 
 ---
@@ -113,6 +115,7 @@ back.
 | This project's own team, the same people every time | one **send link** | project secrets, as `M91_SEND_LINK` |
 | Each customer wakes **their own** people | **each customer's send link** | stored per customer, pasted into a setup screen you build (step 5) |
 | A person chosen at runtime by phone number | an **API key** (`m91sk_…`) | project secrets |
+| The signed-in user of the product's **own app** sees and answers their alerts there | an **app token** (`m91at_…`), minted per person by your server from the API key | never stored: your app fetches it from your server (step 7) |
 
 - **Send link:** the token is in the URL, so the link is a credential. Never put it in
   source, a commit, a client bundle or a logged URL. Scale does not change this choice:
@@ -332,6 +335,215 @@ message is all they read, so on its own it must let them:
 step 2 says, run the checks above, send one `LOW` alert, and report what came back. When
 they reply with a correction, change the code and update the message.
 
+## 7. M91 in your app
+
+When the product has its own desktop, web or mobile app where its users spend
+the day, put the same alerts there too: live, ringing the M91 way, answerable in
+place. Their phone still rings through the M91 app. Full guide, with a complete
+Electron app: [m91-in-your-app.md](https://m91-api.msg91.com/api/public/m91-in-your-app.md).
+Read it before writing this part.
+
+If the product already sends M91 alerts, this step is the whole task: steps 1 and 3
+add no new moments. Step 5 still applies in one line (your users keep the M91 app on
+their phones; it is the alarm), and step 6 is item 5 below.
+
+1. **Your server**, one endpoint, API key stays here. The phone comes from your
+   session, never from the request:
+   ```js
+   app.get('/m91-token', requireLogin, async (req, res) => {
+     const r = await fetch('https://m91-api.msg91.com/api/v1/app-tokens', {
+       method: 'POST',
+       headers: { authorization: `Bearer ${process.env.M91_API_KEY}`, 'content-type': 'application/json' },
+       body: JSON.stringify({ phone: req.user.phone }),
+     });
+     const j = await r.json();
+     j.success ? res.json(j.data) : res.status(r.status).json(j.error); // data: { token, expiresAt, rtlayer }
+   });
+   ```
+   Same call in any language. With the SDK (`@msg91comm/m91` >= 1.3.0):
+   `new M91Platform(key).appToken(phone)`; Python `M91Platform(key).app_token(phone)`.
+   A `403` means the person has accepted none of the key owner's channels yet.
+2. **Your app** holds only that token. **No SDK needed:** if `@msg91comm/m91` 1.3.0+
+   is not available to the app, copy `m91-inbox.js` from the guide's "Without the
+   SDK" section (fetch and WebSocket only, any JS runtime) and write
+   `const inbox = createInbox(getToken)` instead of `new M91Inbox({ getToken })`;
+   take `M91_SOUNDS` from it too. Same calls, same events, so everything below
+   applies unchanged. Other languages: the guide's REST reference and "Live events
+   without the SDK".
+   ```js
+   import { M91Inbox, M91_SOUNDS } from '@msg91comm/m91';
+   const inbox = new M91Inbox({
+     getToken: async () => {
+       // An ABSOLUTE url: in Electron this runs in the main process. Cookie sessions there: net.fetch.
+       const res = await fetch('https://api.yourproduct.com/m91-token', { headers: { authorization: `Bearer ${session}` } });
+       if (!res.ok) throw new Error(`M91 token: ${res.status}`); // 403: they have not accepted in the M91 app yet
+       return res.json();
+     },
+   });
+   const needsMe = (a) => a.status === 'OPEN' && !a.decision && a.myState !== 'RESPONDED';
+   inbox.subscribe((e) => {
+     if (e.type === 'sync') {                                   // after every (re)connect: the truth
+       redraw(e.alerts);                                        // stop what !needsMe; ring a waiting CRITICAL
+       return;
+     }
+     if (!needsMe(e.alert)) return stopRinging(e.alert._id);   // every event, first: answered anywhere, or closed
+     if (e.type === 'alert.created' || e.type === 'alert.reminder') ring(e); // play M91_SOUNDS[e.sound]
+   });
+   ```
+3. **The lists: three, each answering one question.** Pick by what the screen shows:
+
+   | Call (REST) | What it holds | Use it for |
+   |---|---|---|
+   | `inbox.needsMe(f)` (`GET /api/v1/inbox/needs-me`) | Open, nobody took it, and this person has not answered (a PERSONAL answer such as Seen counts). Newest raised first. | What should ring now; the badge count; the default screen; what `sync` carries |
+   | `inbox.taken(f)` (`GET /api/v1/inbox/taken`) | Open, and somebody took it with a SHARED answer: this person or another. `decision` says what; `get()` says who. Most recently changed first. | "Who's on it" boards; following an alert someone is handling |
+   | `inbox.closed(f)` (`GET /api/v1/inbox/closed`) | Resolved. Most recently changed first. | History, search, reports |
+
+   Filters, the same on all three, all optional, combined with AND: `page` (from 1),
+   `limit` (10–100, default 20), `search` (words in title or description, up to 120
+   characters), `severity` (array of `LOW` `MEDIUM` `HIGH` `CRITICAL`), `channelId`
+   (array of channel ids from alerts, up to 50; narrows, never widens), `from` / `to`
+   (ISO dates on when it was raised, inclusive). Over REST, arrays are comma-separated:
+   `?severity=HIGH,CRITICAL&from=2026-11-01`. Each row has `_id, title, description,
+   severity, status, channelId, channelName, createdAt, responseOptions, decision,
+   myState`; `inbox.get(id)` adds `attachments`, `responses` (with `via`) and `other`.
+   An alert this person answered PERSONAL while it waits on others is in none of the
+   three; `get(id)` still returns it.
+
+   Answering: `inbox.seen(id)` when it is opened on screen, then
+   `inbox.respond(id, optionIndex, { note, attachmentKey | attachmentUrl })`. Final,
+   and recorded "from <API key label>". `optionIndex` is the position in
+   `responseOptions`; `-1` is the built-in Other (PERSONAL; ask for a note) when
+   `alert.other` is true. An answer collects what its option names in `required`
+   and `optional` (`note`, `attachment`) and nothing else; Other takes a note and an
+   optional file. One file per answer:
+   ```js
+   const attachmentKey = await inbox.upload(alert._id, fileBytes, 'image/png'); // straight to storage
+   await inbox.respond(alert._id, 0, { note: 'restarted it', attachmentKey });
+   // or a link M91 fetches and keeps a copy of: { attachmentUrl: 'https://…/graph.png' }
+   ```
+   Images (JPEG, PNG, WebP, HEIC, GIF) up to 2 MB, so shrink bigger ones first; PDF
+   up to 5 MB; audio and video (MP3, M4A, AAC, MP4, MOV) up to 25 MB. Show the alert's
+   own files (`alert.attachments`, and each answer's): `{ url, name, type, size }`,
+   images inline, the rest as links opened in the browser. An alert's files are the
+   sender's links as given (`size` null, `type` guessed or null); an answer's are
+   copies M91 stores. A linked image must already be 2 MB or less.
+
+   Closing: `inbox.close(id)` (`POST /api/v1/inbox/:id/close`), exactly as Close
+   alert in the M91 app: it ends for everyone, every phone stops, final. Only when
+   `alert.canClose` (on `get()` and every event's `alert`, not on rows); it is false
+   only while a SHARED answer is still up for grabs, and the server refuses then
+   with `CLOSE_NOT_ALLOWED`. Never compute it yourself.
+4. **Ring the M91 way, exactly:**
+
+   | Severity | First ring (`alert.created`) | Each `alert.reminder` |
+   |---|---|---|
+   | LOW | notification + `m91_alert`, once | nothing |
+   | MEDIUM | notification + `m91_alert` | notification + `m91_alert_still_waiting` |
+   | HIGH | as MEDIUM + Dock bounce / taskbar flash | as the first ring, with `m91_alert_still_waiting` |
+   | CRITICAL | notification + `m91_alert` looping until answered or opened, + Dock bounce / taskbar flash | notification again; the loop restarts if it was opened |
+
+   `sync` carries `needsMe()`, so everything in it should ring; still check `needsMe`
+   on every event. A CRITICAL in a `sync` that is not ringing yet rings at once: it
+   was raised while the app was closed.
+
+   Always: the two M91 sounds and no others, with the OS notification sound off
+   (the hosted `M91_SOUNDS.m91_alert`, `https://m91-api.msg91.com/sounds/m91_alert.mp3`,
+   or with the SDK `soundFiles.m91_alert.mp3` from `@msg91comm/m91/sounds` on disk); answer buttons from `alert.responseOptions` in order,
+   never a fixed "OK", and a one-click button (a notification action) only for an
+   option whose `required` is empty; branch on `error.code` (`ALREADY_RESPONDED`,
+   `ALREADY_CLAIMED`, `ALREADY_CLOSED`, `CLOSE_NOT_ALLOWED`, `NOTE_REQUIRED`,
+   `ATTACHMENT_REQUIRED`, `ATTACHMENT_REFUSED`); stop
+   everything the moment `needsMe` turns false; call `seen()` when an alert is
+   opened, not when it arrives; show who answered and `via`; call it an alert.
+   Every notification is a plain system notification, exactly like Slack's
+   (channel name as title, alert title as text, your app's icon): no custom popup
+   windows. Play the sound from the app (a window's `<audio>`), not through the OS
+   notification: it plays even before the person allows notifications. On macOS the
+   first toast asks for permission and nothing shows until they click Allow (an
+   unpackaged dev build asks as "Electron"; a packaged app asks under its own name).
+5. **Build the screens in the app's own theme, with M91's behaviour.** Fonts,
+   colours, spacing and components are the app's. Structure, behaviour and words
+   are M91's, so every feature works as in the M91 app. Full rules, sketches and
+   strings: section 5 of [the guide](https://m91-api.msg91.com/api/public/m91-in-your-app.md);
+   build from them, not from memory. The essentials:
+
+   ```
+    Needs attention   Being handled   Closed          ← needsMe() taken() closed()
+    [ Search alerts ] [ Any severity ▾ ]  From [ ] To [ ]
+   ▌■ CRITICAL ✎                         just now     ← red edge + blinking square: open CRITICAL that needsMe
+   ▌Payments API down                                 ← title, bold, ≤ 2 lines
+   ▌502s on 4% of checkouts…                          ← description, 1 line
+   ▌Payments                                          ← channel
+   ```
+   ```
+   ■ MEDIUM
+   Checkout error rate above 4%                       ← large
+   Payments API returning 502…   (4 lines, Show more)
+   Testing · just now · from Owner
+   (image inline)   [📄 invoice.pdf   PDF · 240 KB]
+   [            Fixed it            ]                 ← primary; only while needsMe
+    Removed from everyone else in the channel         ← SHARED
+   [              Seen              ]                 ← secondary
+    Remains for everyone else in the channel          ← PERSONAL
+   [ Your custom response        📎 ➤ ]               ← Other: a field, last
+    Remains for everyone else in the channel
+   [          Close alert           ]                 ← only when alert.canClose
+   RESPONSES
+   [R] Seen  Rahul · 2m ago · from CRM Desktop        ← answer bold; "For everyone" on SHARED
+   ```
+
+   - **Rows**: the same on all three tabs; severity colours from the app's palette,
+     used for nothing else (red = CRITICAL only); a pencil when every answer needs a
+     note or file; on Being handled, `decision.label`. Age: "just now", "38m ago",
+     "2h ago", "3d ago", then the date. Empty Needs attention: "You’re all caught up".
+   - **An option with empty `required` and `optional`** sends on one click.
+   - **An option that collects** opens its fields in place under it, only those it
+     names, labelled "Note (required|optional)" / "Attachment (required|optional)",
+     then a "Send “<label>”" button. Check required ones before sending: "This
+     answer needs a note." / "This answer needs a file or a link."
+   - **Other** (`alert.other`, `optionIndex -1`, always PERSONAL): a text field
+     "Your custom response" with a paperclip (optional file) and a send arrow;
+     Enter sends; empty → "Write your response first."
+   - **Attaching**: "Choose a file" or paste a link; one file; show name, size and
+     Remove; shrink images over 2 MB to JPEG.
+   - **On a refusal**, show `message` above the answers and keep what was typed;
+     on `ALREADY_*`, re-read the alert and show it.
+   - **After sending**, replace the answers for ~8 s with the answer in bold (Other:
+     the text) and "Whoever raised this alert can see your answer." plus "The alert
+     is removed from everyone else in the channel." / "The alert remains for
+     everyone else in the channel." / "The alert is closed." Answers are final.
+   - **Close alert**: only when `alert.canClose`, re-checked on every redraw;
+     after the answers, full width. Confirm first: "Close this alert?" / "It's done
+     — nobody else needs to act on it. This can't be undone." / Cancel, Close. On
+     success say nothing: back to the list. After an answer that leaves it open
+     while `canClose`, the confirmation also offers "Close alert" (no second
+     confirmation) and "Leave it open". On `CLOSE_NOT_ALLOWED` or `ALREADY_CLOSED`,
+     re-read the alert and show it.
+   - **Live updates never wipe typing**: redraw from `event.alert`, keep the answer
+     area while it still `needsMe`, and never call `seen()` for an update.
+   - **Files**: images inline, other files a row with name, format word (PDF, Audio,
+     Video) and size; never "1 attachment".
+   - **Desktop**: list and alert side by side, answers right after the alert in the
+     same scroll. **Phone**: answers pinned at the bottom.
+   - **Mistakes that shipped in our own reference app** (full table: the guide's
+     "Mistakes to avoid"): a key handler like `onkeydown = (e) => e.key === 'Enter' && send()`
+     returns `false` for every other key and cancels typing, so use
+     `addEventListener` with a block body; while your window is focused macOS shows
+     no banner for your notification, so also show an in-window notice (click
+     opens the alert; a CRITICAL stays until opened or answered); a CSP without
+     `media-src https://m91-api.msg91.com` silences the sound; inputs in grid or flex
+     rows need `min-width: 0`. Type in every field and receive an alert with the
+     window focused before calling the screens done.
+6. **What it cannot do:** nothing arrives while the app is closed (the phone is the
+   alarm); only alerts on channels the key's owner owns appear; never add your own
+   mobile push for the same alerts (the person would be notified twice).
+7. **Prove it:** sign in as an accepted member, raise a CRITICAL alert, see the
+   notification and hear the loop, answer it on the phone and watch both stop by themselves;
+   raise another with an option that requires an attachment, answer it in your app
+   with a file, and see the file and "from <label>" in the M91 app. Check each tab:
+   it moves from needs-me to taken, and to closed once closed. Confirm the API key
+   is nowhere in the app bundle.
+
 ## Facts that break integrations
 
 | Fact | Consequence |
@@ -343,6 +555,7 @@ they reply with a correction, change the code and update the message.
 | `isAutoClose` defaults to `false` | a `SHARED` answer stands the other phones down but leaves the alert open |
 | `responseOptions` omitted, or `[]` without `isAutoClose` | the alert rings and nothing can ever close it |
 | One response per person, and it is final | a change of mind is a new alert |
+| An app token is for one person and lasts an hour | mint it on your server from the session's phone; never ship the API key in an app |
 | 60 alerts a minute per link, then `429` with `Retry-After` | usually a missing `customId` or a retry loop with no backoff |
 | `title` is 5–2000 characters, a label at most 24 | write a title someone can read on a locked screen |
 | `POST` needs `Content-Type: application/json` | without it the body arrives empty |
